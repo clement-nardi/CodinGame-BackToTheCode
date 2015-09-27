@@ -4,13 +4,20 @@
 #include <vector>
 #include <algorithm>
 #include <stdio.h>
+#include <chrono>
 
 #define NEUTRAL -1
 #define TREATED -2
 
 using namespace std;
+using namespace std::chrono;
 
 int nbPlayers;
+
+int countPaths;
+int countFill;
+bool timeout;
+high_resolution_clock::time_point roundStart;
 
 enum Direction {
     Up,Down,Left,Right,UpLeft,UpRight,DownLeft,DownRight
@@ -228,6 +235,7 @@ public:
     }
 
     void fillSurroundedAreas(){
+        countFill++;
         Grid tempGrid = *this;
         for (int y = 0; y < 20; y++) {
             for (int x = 0; x < 35; x++) {
@@ -251,7 +259,37 @@ public:
         player[p].pos.move(dir);
         if (cellAt(player[p].pos).owner == NEUTRAL) {
             cellAt(player[p].pos).owner = p;
-            fillSurroundedAreas();
+            int countMine = 0;
+            for (Direction dir = Up; dir <= Right; ++dir) {
+                Position pos = player[0].pos;
+                if (pos.move(dir)) {
+                    if (cellAt(pos).owner == 0) {
+                        countMine++;
+                    }
+                }
+            }
+            if (countMine >=2 ) {
+                Direction around[8] = {UpLeft, Up, UpRight, Right, DownRight, Down, DownLeft, Left};
+                Position previousPos = player[0].pos;
+                int changeCount = 0;
+                previousPos.move(Left);
+
+                for (int i=0; i<8; i++) {
+                    Position currentPos = player[0].pos;
+                    currentPos.move(around[i]);
+                    Cell currentCell = cellAt(currentPos);
+                    Cell previousCell = cellAt(previousPos);
+                    if (previousCell.owner == 0 && currentCell.owner == NEUTRAL ||
+                        previousCell.owner == NEUTRAL && currentCell.owner == 0   ) {
+                        changeCount++;
+                    }
+
+                    previousPos = currentPos;
+                }
+                if (changeCount>2) {
+                    fillSurroundedAreas();
+                }
+            }
         }
     }
 
@@ -260,6 +298,16 @@ public:
                       int *maxScore,
                       Position currentPath[],
                       Position bestPath[]) {
+        countPaths++;
+        if (timeout) return;
+        if (countPaths%500 == 0) {
+            high_resolution_clock::time_point end = high_resolution_clock::now();
+            duration<double> time_span = duration_cast<duration<double>>(end - roundStart);
+            //fprintf(stderr,"%.2f\n",time_span.count());
+            if (time_span.count() >0.095) {
+                timeout = true;
+            }
+        }
         currentPath[currentPathLen] = player[0].pos;
         //cerr << "evaluating: ";
         //printPath(currentPath);
@@ -375,9 +423,14 @@ int main()
 
     // game loop
     while (1) {
+        roundStart = high_resolution_clock::now();
         int gameRound;
         TimeLine *currentTimeLine = &(timeLines.mainLine);
         Grid *currentGrid;
+
+        countPaths = 0;
+        countFill = 0;
+        timeout = false;
 
         cin >> gameRound; cin.ignore();
         gameRound--;
@@ -441,13 +494,17 @@ int main()
         Position currentPath[701];
         Position bestPath[701];
 
-        tempGrid.findBestPath(0,6,
+        tempGrid.findBestPath(0,9,
                               &maxScore,
                               currentPath,
                               bestPath);
 
         currentGrid->print(&bestPath[1]);
 
+        fprintf(stderr,"Paths: %d  Fills: %d  Fills/Paths: %.2f%%\n",countPaths,countFill,(float)countFill/(float)countPaths*(float)100);
+        if (timeout) {
+            cerr << "TIMEOUT!!" << endl;
+        }
 
 
         // Write an action using cout. DON'T FORGET THE "<< endl"
