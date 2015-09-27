@@ -19,6 +19,15 @@ int countFill;
 bool timeout;
 high_resolution_clock::time_point roundStart;
 
+void checkTimeOut(){
+    high_resolution_clock::time_point end = high_resolution_clock::now();
+    duration<double> time_span = duration_cast<duration<double>>(end - roundStart);
+    //fprintf(stderr,"%.2f\n",time_span.count());
+    if (time_span.count() >0.095) {
+        timeout = true;
+    }
+}
+
 enum Direction {
     Up,Down,Left,Right,UpLeft,UpRight,DownLeft,DownRight
 };
@@ -30,6 +39,10 @@ Direction &operator++(Direction &dir){
 
 class Cell {
 public:
+    Cell(){
+        owner = NEUTRAL;
+    }
+
     int owner;
 };
 
@@ -301,12 +314,7 @@ public:
         countPaths++;
         if (timeout) return;
         if (countPaths%500 == 0) {
-            high_resolution_clock::time_point end = high_resolution_clock::now();
-            duration<double> time_span = duration_cast<duration<double>>(end - roundStart);
-            //fprintf(stderr,"%.2f\n",time_span.count());
-            if (time_span.count() >0.095) {
-                timeout = true;
-            }
+            checkTimeOut();
         }
         currentPath[currentPathLen] = player[0].pos;
         //cerr << "evaluating: ";
@@ -489,29 +497,118 @@ int main()
         }*/
 
 
-        Grid tempGrid = *currentGrid;
         int maxScore = 0;
-        Position currentPath[701];
         Position bestPath[701];
+        Grid opponentPattern;
+        int depth = 1;
 
-        tempGrid.findBestPath(0,9,
-                              &maxScore,
-                              currentPath,
-                              bestPath);
+        for (int p=1; p<nbPlayers; p++) {
+            opponentPattern.cell[currentGrid->player[p].pos.x][currentGrid->player[p].pos.y].owner = p;
+        }
+
+        while (true) {
+            Grid tempGrid = *currentGrid;
+            Position currentPath[701];
+
+            // Grow opponent pattern
+            Grid newPattern = opponentPattern;
+            for (int y = 0; y < 20; y++) {
+                for (int x = 0; x < 35; x++) {
+                    int owner = opponentPattern.cell[x][y].owner;
+                    if (owner>0) {
+                        for (Direction dir = Up; dir <= Right; ++dir) {
+                            Position pos(x,y);
+                            pos.move(dir);
+                            newPattern.cellAt(pos).owner = owner;
+                        }
+                    }
+                }
+            }
+            opponentPattern = newPattern;
+            for (int y = 0; y < 20; y++) {
+                for (int x = 0; x < 35; x++) {
+                    int owner = opponentPattern.cell[x][y].owner;
+                    if (owner>0) {
+                        if (tempGrid.cell[x][y].owner == NEUTRAL) {
+                            tempGrid.cell[x][y].owner = owner;
+                        }
+                    }
+                }
+            }
+
+            //tempGrid.print();
+
+            int maxScoreSaved = maxScore;
+
+            tempGrid.findBestPath(0,depth,
+                                  &maxScore,
+                                  currentPath,
+                                  bestPath);
+
+
+            //checkTimeOut();
+            //cerr << "DEPTH:" << depth << endl;
+            //fprintf(stderr,"Paths: %d  Fills: %d  Fills/Paths: %.2f%%\n",countPaths,countFill,(float)countFill/(float)countPaths*(float)100);
+            if (maxScore == maxScoreSaved) {
+                cerr << "Going further won't help" << endl;
+                break;
+            }
+
+            if (timeout) {
+                cerr << "TIMEOUT!!" << endl;
+                break;
+            }
+            depth++;
+        }
 
         currentGrid->print(&bestPath[1]);
 
-        fprintf(stderr,"Paths: %d  Fills: %d  Fills/Paths: %.2f%%\n",countPaths,countFill,(float)countFill/(float)countPaths*(float)100);
-        if (timeout) {
-            cerr << "TIMEOUT!!" << endl;
+        fprintf(stderr,"Depth:%d  Paths: %d  Fills: %d  Fills/Paths: %.2f%%\n",
+                depth,countPaths,countFill,(float)countFill/(float)countPaths*(float)100);
+
+        Position nextPos(-1,-1);
+
+        if (bestPath[1].x != -1) {
+            cerr << "Best Path Found! maxScore = " << maxScore << endl;
+            nextPos = bestPath[1];
+        } else {
+            //Go to the closest neutral cell
+            cerr << "Search for closest neutral cell" << endl;
+            Grid myPattern;
+            myPattern.cell[currentGrid->player[0].pos.x][currentGrid->player[0].pos.y].owner = 0;
+
+            // Grow my pattern
+            bool goOn = true;
+            while (goOn) {
+                goOn = false;
+                Grid newPattern = myPattern;
+                for (int y = 0; y < 20 && nextPos.x == -1; y++) {
+                    for (int x = 0; x < 35 && nextPos.x == -1; x++) {
+                        if (myPattern.cell[x][y].owner==0) {
+                            if (currentGrid->cell[x][y].owner==NEUTRAL) {
+                                nextPos = Position(x,y);
+                                cerr << " --> found" << endl;
+                            } else {
+                                for (Direction dir = Up; dir <= Right; ++dir) {
+                                    Position pos(x,y);
+                                    pos.move(dir);
+                                    newPattern.cellAt(pos).owner = 0;
+                                }
+                            }
+                        } else {
+                            goOn = true;
+                        }
+                    }
+                }
+                myPattern = newPattern;
+            }
         }
 
+        nextPos.secure();
 
         // Write an action using cout. DON'T FORGET THE "<< endl"
         // To debug: cerr << "Debug messages..." << endl;
-        Position nextPos = bestPath[1];
-        nextPos.secure();
-
         cout << nextPos.x << " " << nextPos.y << endl; // action: "x y" to move or "BACK rounds" to go back in time
+
     }
 }
