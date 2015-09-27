@@ -31,6 +31,8 @@ void checkTimeOut(){
 enum Direction {
     Up,Down,Left,Right,UpLeft,UpRight,DownLeft,DownRight
 };
+Direction around[8] = {UpLeft, Up, UpRight, Right, DownRight, Down, DownLeft, Left};
+
 
 Direction &operator++(Direction &dir){
     dir = (Direction)(dir + 1);
@@ -41,6 +43,10 @@ class Cell {
 public:
     Cell(){
         owner = NEUTRAL;
+    }
+
+    bool isAmong(int p1, int p2) {
+        return owner == p1 || owner == p2;
     }
 
     int owner;
@@ -63,7 +69,7 @@ public:
 
     /** moves to the Position to the given direction (if possible)
       * return true if the Position stays on the board */
-    bool move(Direction dir) {
+    bool move(const Direction &dir) {
         bool res = true;
         switch(dir) {
         case Up:
@@ -133,6 +139,13 @@ public:
     bool operator==(const Position &other) const{
         return x == other.x && y == other.y;
     }
+
+    Position &operator+(const Direction &dir) {
+        Position pos = *this;
+        pos.move(dir);
+        return pos;
+    }
+
     static Position topLeft(Position &a,Position&b){
         return Position(min(a.x,b.x),min(a.y,b.y));
     }
@@ -192,7 +205,54 @@ public:
     Cell cell[35][20]; /* 700 */
     Player player[4];
 
-    Cell &cellAt(Position pos) {
+    Grid(){}
+
+    Grid(char *trace) {
+        int linesRead = 0;
+        int charIdx = 0;
+        while (linesRead < 20) {
+            char currentChar=trace[charIdx];
+            if (currentChar == '|') {
+                charIdx++;
+                for (int x = 0; x < 35; x++ ) {
+                    currentChar=trace[charIdx];
+                    switch (currentChar) {
+                    case '.':
+                    case ' ':
+                        cell[x][linesRead].owner = NEUTRAL;
+                        break;
+                    case 'O':
+                        player[0].pos = Position(x,linesRead);
+                    case 'o':
+                        cell[x][linesRead].owner = 0;
+                        break;
+                    case 'X':
+                        player[1].pos = Position(x,linesRead);
+                    case 'x':
+                        cell[x][linesRead].owner = 1;
+                        break;
+                    case 'V':
+                        player[2].pos = Position(x,linesRead);
+                    case 'v':
+                        cell[x][linesRead].owner = 2;
+                        break;
+                    case 'I':
+                        player[3].pos = Position(x,linesRead);
+                    case 'i':
+                        cell[x][linesRead].owner = 3;
+                        break;
+                    }
+                    charIdx++;
+                }
+                charIdx++;
+                linesRead++;
+            }
+            charIdx++;
+        }
+
+    }
+
+    Cell &cellAt(Position &pos) {
         return cell[pos.x][pos.y];
     }
 
@@ -235,6 +295,50 @@ public:
             }
         }
     }
+
+    /* stops as soon as possible */
+    bool attemptFillQuick(Position pos, int &p) {
+        if (cellAt(pos).owner == NEUTRAL) {
+            cellAt(pos).owner = TREATED;
+            for (Direction dir = Up; dir <= DownRight; ++dir) {
+                Position newPos = pos;
+                if (newPos.move(dir)) {
+                    if (!attemptFillQuick(newPos,p)) {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+            return true;
+        } else {
+            if (cellAt(pos).owner == TREATED) {
+                return true;
+            } else if (p == NEUTRAL) {
+                /* No player's cell encountered yet */
+                p = cellAt(pos).owner;
+                return true;
+            } else {
+                return p == cellAt(pos).owner;
+            }
+        }
+    }
+
+    /* abandonned */
+    bool followBorder(Position pos, int aroundIdx, int &p, int &fill) {
+        cellAt(pos).owner = fill;
+        for (int angle = 6; angle <=10; angle++) { //look left, then front, then right
+            Direction dir = around[(aroundIdx+angle)%8];
+            int owner = cellAround(pos,dir).owner;
+            if (owner == NEUTRAL) {
+                return followBorder(pos + dir,(aroundIdx+angle)%8,p,fill);
+            } else if (owner == p || owner == fill) {
+                /* only for front and right: test corner */
+                continue;
+            }
+        }
+    }
+
     void fill(Position pos, int p) {
         if (cellAt(pos).owner == NEUTRAL) {
             cellAt(pos).owner = p;
@@ -268,39 +372,74 @@ public:
         }
     }
 
+    Cell &cellAround(Position &pos_, Direction &dir){
+        Position pos = pos_;
+        pos.move(dir);
+        return cellAt(pos);
+    }
+
+    void tryFill(Position pos, int p) {
+        countFill++;
+        Grid tempGrid = *this;
+        if (tempGrid.attemptFillQuick(pos,p)) {
+            fill(pos,p);
+        }
+    }
+
     void movePlayer(int p, Direction dir){
+        Position pos;
         player[p].pos.move(dir);
-        if (cellAt(player[p].pos).owner == NEUTRAL) {
-            cellAt(player[p].pos).owner = p;
-            int countMine = 0;
-            for (Direction dir = Up; dir <= Right; ++dir) {
-                Position pos = player[0].pos;
-                if (pos.move(dir)) {
-                    if (cellAt(pos).owner == 0) {
-                        countMine++;
+        pos = player[p].pos;
+        if (cellAt(pos).owner == NEUTRAL) {
+            cellAt(pos).owner = p;
+            for (int i=1; i<8; i = i+2) {
+                if (cellAround(pos,around[i]).owner == p &&
+                    cellAround(pos,around[(i+2)%8]).owner == p) {
+                    /* .o.
+                     * .Oo corner
+                     * ...        */
+                    if (cellAround(pos,around[(i+1)%8]).owner == NEUTRAL) {
+                        tryFill(pos + around[(i+1)%8],p);
+                    } else if (cellAround(pos,around[(i+3)%8]).isAmong(NEUTRAL,p) &&
+                               cellAround(pos,around[(i+4)%8]).owner == NEUTRAL &&
+                               cellAround(pos,around[(i+5)%8]).isAmong(NEUTRAL,p) &&
+                               cellAround(pos,around[(i+6)%8]).owner == NEUTRAL &&
+                               cellAround(pos,around[(i+7)%8]).isAmong(NEUTRAL,p) ) {
+                        for (int j = 3; j<=7; j++) {
+                            if (cellAround(pos,around[(i+j)%8]).owner == NEUTRAL) {
+                                tryFill(pos + around[(i+j)%8],p);
+                                break;
+                            }
+                        }
                     }
                 }
             }
-            if (countMine >=2 ) {
-                Direction around[8] = {UpLeft, Up, UpRight, Right, DownRight, Down, DownLeft, Left};
-                Position previousPos = player[0].pos;
-                int changeCount = 0;
-                previousPos.move(Left);
-
-                for (int i=0; i<8; i++) {
-                    Position currentPos = player[0].pos;
-                    currentPos.move(around[i]);
-                    Cell currentCell = cellAt(currentPos);
-                    Cell previousCell = cellAt(previousPos);
-                    if (previousCell.owner == 0 && currentCell.owner == NEUTRAL ||
-                        previousCell.owner == NEUTRAL && currentCell.owner == 0   ) {
-                        changeCount++;
+            for (int i=1; i<4; i = i+2) {
+                if (cellAround(pos,around[i]).owner == p &&
+                    cellAround(pos,around[(i+4)%8]).owner == p) {
+                    /* .o.
+                     * .O. line
+                     * .o.        */
+                    if (cellAround(pos,around[(i+1)%8]).isAmong(NEUTRAL,p) &&
+                        cellAround(pos,around[(i+2)%8]).owner == NEUTRAL   &&
+                        cellAround(pos,around[(i+3)%8]).isAmong(NEUTRAL,p)    ) {
+                        for (int j = 1; j<=3; j++) {
+                            if (cellAround(pos,around[(i+j)%8]).owner == NEUTRAL) {
+                                tryFill(pos + around[(i+j)%8],p);
+                                break;
+                            }
+                        }
                     }
-
-                    previousPos = currentPos;
-                }
-                if (changeCount>2) {
-                    fillSurroundedAreas();
+                    if (cellAround(pos,around[(i+5)%8]).isAmong(NEUTRAL,p) &&
+                        cellAround(pos,around[(i+6)%8]).owner == NEUTRAL   &&
+                        cellAround(pos,around[(i+7)%8]).isAmong(NEUTRAL,p)    ) {
+                        for (int j = 5; j<=7; j++) {
+                            if (cellAround(pos,around[(i+j)%8]).owner == NEUTRAL) {
+                                tryFill(pos + around[(i+j)%8],p);
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -340,8 +479,11 @@ public:
         if (isDeadEnd) {
             int currentScore = score(0);
             currentPath[currentPathLen+1] = Position();
-            //printPath(currentPath);
-            //cerr << "score=" << currentScore << endl;
+            /*if (maxPathLen>=3) {
+                printPath(currentPath);
+                print();
+                cerr << "score=" << currentScore << endl;
+            }*/
             //cerr << "deadEnd. Score=" << currentScore << " max=" << *maxScore << endl;
             if (currentScore>*maxScore) {
                 *maxScore = currentScore;
@@ -497,6 +639,33 @@ int main()
         }*/
 
 
+        /*
+        //Unit-test for findBestPath
+        char *trace = {" 0|                       iiiiiiiiiiii|0\n"\
+                       " 1|                         oooiiiiiii|1\n"\
+                       " 2|                         o oiiiiiii|2\n"\
+                       " 3|       vvvvvvvvvvvvvvvvvvo oiiiiiii|3\n"\
+                       " 4|xxxxxxxxxxxxxxxx        vo Oiiiiiii|4\n"\
+                       " 5|x          x            vo..iiiiiii|5\n"\
+                       " 6|xvvvvvvvvvvx            vo..iiiiiii|6\n"\
+                       " 7|xvvvvvvvvvvxiiiiiiiiiiiiviiiioooooo|7\n"\
+                       " 8|xvvvvvvvvvvxi           voooooooooo|8\n"\
+                       " 9|xvvvvvvvvvvxi          ivoooooooooo|9\n"\
+                       "10|xvV xxxxxxxxix   iiiiiiivoooooooooo|10\n"\
+                       "11|xv        xxix   i     ivoooooooooo|11\n"\
+                       "12|xv        xxix   I     ivoooooooooo|12\n"\
+                       "13|xv          ix         ivoooooooooo|13\n"\
+                       "14|xvvvvvvv    ix         ivoooooooooo|14\n"\
+                       "15|x      v    ix         ivoooooooooo|15\n"\
+                       "16|x      v    ixxxX      ivoooooooooo|16\n"\
+                       "17|x      v    iiiiiiiiiiiivoooooooooo|17\n"\
+                       "18|x      vvvvvvvvvvvvvvvvvvoooooooooo|18\n"\
+                       "19|xxxxxxxxxxxx             oooooooooo|19"};
+        Grid testGrid(trace);
+        //testGrid.print();
+        currentGrid = &testGrid;
+        */
+
         int maxScore = 0;
         Position bestPath[701];
         Grid opponentPattern;
@@ -548,6 +717,8 @@ int main()
 
             //checkTimeOut();
             //cerr << "DEPTH:" << depth << endl;
+            //printPath(bestPath);
+            //cerr << "maxScore = " << maxScore << endl;
             //fprintf(stderr,"Paths: %d  Fills: %d  Fills/Paths: %.2f%%\n",countPaths,countFill,(float)countFill/(float)countPaths*(float)100);
             if (maxScore == maxScoreSaved) {
                 cerr << "Going further won't help" << endl;
