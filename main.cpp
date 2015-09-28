@@ -140,7 +140,7 @@ public:
         return x == other.x && y == other.y;
     }
 
-    Position &operator+(const Direction &dir) {
+    const Position operator+(const Direction &dir) {
         Position pos = *this;
         pos.move(dir);
         return pos;
@@ -254,6 +254,16 @@ public:
 
     Cell &cellAt(Position &pos) {
         return cell[pos.x][pos.y];
+    }
+
+    bool cellHasOpponentOnIt(int x, int y) {
+        for (int p = 1; p < nbPlayers; p++) {
+            if (player[p].pos.x == x &&
+                player[p].pos.y == y   ) {
+                return true;
+            }
+        }
+        return false;
     }
 
     int score(int p) {
@@ -455,19 +465,30 @@ public:
         if (countPaths%500 == 0) {
             checkTimeOut();
         }
-        currentPath[currentPathLen] = player[0].pos;
-        //cerr << "evaluating: ";
+        //cerr << "evaluating: " << endl;
+        //currentPath[currentPathLen+1] = Position();
         //printPath(currentPath);
         //print();
         bool isDeadEnd = true;
         if (currentPathLen < maxPathLen) {
+            int stepSize = maxPathLen<5?1:maxPathLen<10?2:maxPathLen<15?3:4;
             for (Direction dir = Up; dir <= Right; ++dir) {
-                Position pos = player[0].pos;
-                pos.move(dir);
-                if (cellAt(pos).owner == NEUTRAL) {
-                    Grid nextGrid = *this;
-                    nextGrid.movePlayer(0,dir);
-                    nextGrid.findBestPath(currentPathLen+1,
+                Grid nextGrid = *this;
+                int newPathLen = currentPathLen;
+                bool hasMoved = false;
+                for (int i = 0; i<stepSize && currentPathLen < maxPathLen; i++) {
+                    Position pos = nextGrid.player[0].pos;
+                    pos.move(dir);
+                    if (nextGrid.cellAt(pos).owner == NEUTRAL) {
+                        nextGrid.movePlayer(0,dir);
+                        currentPath[++newPathLen] = nextGrid.player[0].pos;
+                        hasMoved = true;
+                    } else {
+                        break;
+                    }
+                }
+                if (hasMoved) {
+                    nextGrid.findBestPath(newPathLen,
                                           maxPathLen,
                                           maxScore,
                                           currentPath,
@@ -674,10 +695,12 @@ int main()
         for (int p=1; p<nbPlayers; p++) {
             opponentPattern.cell[currentGrid->player[p].pos.x][currentGrid->player[p].pos.y].owner = p;
         }
+        bestPath[0] = currentGrid->player[0].pos;
 
-        while (true) {
+        while (depth < 56) {
             Grid tempGrid = *currentGrid;
             Position currentPath[701];
+            currentPath[0] = currentGrid->player[0].pos;
 
             // Grow opponent pattern
             Grid newPattern = opponentPattern;
@@ -708,6 +731,7 @@ int main()
             //tempGrid.print();
 
             int maxScoreSaved = maxScore;
+            //cerr << "DEPTH:" << depth << endl;
 
             tempGrid.findBestPath(0,depth,
                                   &maxScore,
@@ -716,13 +740,12 @@ int main()
 
 
             //checkTimeOut();
-            //cerr << "DEPTH:" << depth << endl;
             //printPath(bestPath);
             //cerr << "maxScore = " << maxScore << endl;
             //fprintf(stderr,"Paths: %d  Fills: %d  Fills/Paths: %.2f%%\n",countPaths,countFill,(float)countFill/(float)countPaths*(float)100);
             if (maxScore == maxScoreSaved) {
-                cerr << "Going further won't help" << endl;
-                break;
+                //cerr << "Going further won't help" << endl;
+                //break;
             }
 
             if (timeout) {
@@ -756,7 +779,8 @@ int main()
                 for (int y = 0; y < 20 && nextPos.x == -1; y++) {
                     for (int x = 0; x < 35 && nextPos.x == -1; x++) {
                         if (myPattern.cell[x][y].owner==0) {
-                            if (currentGrid->cell[x][y].owner==NEUTRAL) {
+                            if (currentGrid->cell[x][y].owner==NEUTRAL &&
+                                !currentGrid->cellHasOpponentOnIt(x,y)) {
                                 nextPos = Position(x,y);
                                 cerr << " --> found" << endl;
                             } else {
