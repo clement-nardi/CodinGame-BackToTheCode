@@ -17,14 +17,23 @@ int nbPlayers;
 int countPaths;
 int countFill;
 bool timeout;
+int accelerationLevel;
 high_resolution_clock::time_point roundStart;
+
+int depth;
 
 void checkTimeOut(){
     high_resolution_clock::time_point end = high_resolution_clock::now();
     duration<double> time_span = duration_cast<duration<double>>(end - roundStart);
-    //fprintf(stderr,"%.2f\n",time_span.count());
+    fprintf(stderr,"%.2f\n",time_span.count());
     if (time_span.count() >0.095) {
         timeout = true;
+    }
+    if (time_span.count() > 0.05 && accelerationLevel == 0 ||
+        time_span.count() > 0.07 && accelerationLevel == 1    ) {
+        accelerationLevel++;
+        fprintf(stderr,"ACCELERATE: %d Depth:%d  Paths: %d  Fills: %d  Fills/Paths: %.2f%%\n",
+                accelerationLevel,depth,countPaths,countFill,(float)countFill/(float)countPaths*(float)100);
     }
 }
 
@@ -252,7 +261,7 @@ public:
 
     }
 
-    Cell &cellAt(Position &pos) {
+    Cell &cellAt(const Position pos) {
         return cell[pos.x][pos.y];
     }
 
@@ -265,6 +274,27 @@ public:
         }
         return false;
     }
+
+    void growPlayer(int p) {
+        Grid newGrid = *this;
+        for (int y = 0; y < 20; y++) {
+            for (int x = 0; x < 35; x++) {
+                if (cell[x][y].owner == p) {
+                    for (Direction dir = Up; dir <= Right; ++dir) {
+                        newGrid.cellAt(Position(x,y)+dir).owner = p;
+                    }
+                }
+            }
+        }
+        *this = newGrid;
+    }
+
+    void growOpponents() {
+        for (int p = 1; p < nbPlayers; p++) {
+            growPlayer(p);
+        }
+    }
+
 
     int score(int p) {
         int score = 0;
@@ -471,12 +501,11 @@ public:
         //print();
         bool isDeadEnd = true;
         if (currentPathLen < maxPathLen) {
-            int stepSize = maxPathLen<5?1:maxPathLen<10?2:maxPathLen<15?3:4;
             for (Direction dir = Up; dir <= Right; ++dir) {
                 Grid nextGrid = *this;
                 int newPathLen = currentPathLen;
                 bool hasMoved = false;
-                for (int i = 0; i<stepSize && currentPathLen < maxPathLen; i++) {
+                for (int i = 0; i<accelerationLevel+1 && currentPathLen < maxPathLen; i++) {
                     Position pos = nextGrid.player[0].pos;
                     pos.move(dir);
                     if (nextGrid.cellAt(pos).owner == NEUTRAL) {
@@ -594,7 +623,6 @@ int main()
 
     // game loop
     while (1) {
-        roundStart = high_resolution_clock::now();
         int gameRound;
         TimeLine *currentTimeLine = &(timeLines.mainLine);
         Grid *currentGrid;
@@ -602,6 +630,7 @@ int main()
         countPaths = 0;
         countFill = 0;
         timeout = false;
+        accelerationLevel = 0;
 
         cin >> gameRound; cin.ignore();
         gameRound--;
@@ -638,6 +667,7 @@ int main()
                 }
             }
         }
+        roundStart = high_resolution_clock::now();
 
         /*
         {
@@ -690,7 +720,7 @@ int main()
         int maxScore = 0;
         Position bestPath[701];
         Grid opponentPattern;
-        int depth = 1;
+        depth = 1;
 
         for (int p=1; p<nbPlayers; p++) {
             opponentPattern.cell[currentGrid->player[p].pos.x][currentGrid->player[p].pos.y].owner = p;
@@ -703,20 +733,8 @@ int main()
             currentPath[0] = currentGrid->player[0].pos;
 
             // Grow opponent pattern
-            Grid newPattern = opponentPattern;
-            for (int y = 0; y < 20; y++) {
-                for (int x = 0; x < 35; x++) {
-                    int owner = opponentPattern.cell[x][y].owner;
-                    if (owner>0) {
-                        for (Direction dir = Up; dir <= Right; ++dir) {
-                            Position pos(x,y);
-                            pos.move(dir);
-                            newPattern.cellAt(pos).owner = owner;
-                        }
-                    }
-                }
-            }
-            opponentPattern = newPattern;
+            opponentPattern.growOpponents();
+
             for (int y = 0; y < 20; y++) {
                 for (int x = 0; x < 35; x++) {
                     int owner = opponentPattern.cell[x][y].owner;
