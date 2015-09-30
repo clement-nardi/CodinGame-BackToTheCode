@@ -154,6 +154,9 @@ public:
     bool operator==(const Position &other) const{
         return x == other.x && y == other.y;
     }
+    bool operator!=(const Position &other) const{
+        return x != other.x || y != other.y;
+    }
 
     const Position operator+(const Direction &dir) {
         Position pos = *this;
@@ -193,7 +196,7 @@ void printPath(Position *path) {
             if (pos.x == -1) {
                 break;
             } else {
-                output[pos.y][pos.x] = idx==0?'O':'.';
+                output[pos.y][pos.x] = idx==0?'O':'+';
                 topLeft = Position::topLeft(topLeft,pos);
                 bottomRight = Position::bottomRight(bottomRight,pos);
             }
@@ -206,6 +209,19 @@ void printPath(Position *path) {
             cerr << output[y][x];
         }
         cerr << endl;
+    }
+}
+
+int pathLen(Position *path) {
+    if (path != NULL) {
+        int idx = 0;
+        while (true) {
+            Position pos = path[idx];
+            if (pos.x == -1) {
+                return idx;
+            }
+            idx++;
+        }
     }
 }
 
@@ -223,50 +239,6 @@ public:
 
     Grid(){}
 
-    Grid(char *trace) {
-        int linesRead = 0;
-        int charIdx = 0;
-        while (linesRead < 20) {
-            char currentChar=trace[charIdx];
-            if (currentChar == '|') {
-                charIdx++;
-                for (int x = 0; x < 35; x++ ) {
-                    currentChar=trace[charIdx];
-                    switch (currentChar) {
-                    case '.':
-                    case ' ':
-                        cell[x][linesRead].owner = NEUTRAL;
-                        break;
-                    case 'O':
-                        player[0].pos = Position(x,linesRead);
-                    case 'o':
-                        cell[x][linesRead].owner = 0;
-                        break;
-                    case 'X':
-                        player[1].pos = Position(x,linesRead);
-                    case 'x':
-                        cell[x][linesRead].owner = 1;
-                        break;
-                    case 'V':
-                        player[2].pos = Position(x,linesRead);
-                    case 'v':
-                        cell[x][linesRead].owner = 2;
-                        break;
-                    case 'I':
-                        player[3].pos = Position(x,linesRead);
-                    case 'i':
-                        cell[x][linesRead].owner = 3;
-                        break;
-                    }
-                    charIdx++;
-                }
-                charIdx++;
-                linesRead++;
-            }
-            charIdx++;
-        }
-
-    }
 
     Cell &cellAt(const Position pos) {
         return cell[pos.x][pos.y];
@@ -598,17 +570,77 @@ public:
         }
     }
 
+    Grid(char *trace) {
+        int linesRead = 0;
+        int charIdx = 0;
+        while (linesRead < 20) {
+            char currentChar=trace[charIdx];
+            if (currentChar == '|' ||
+                currentChar == '>' ) {
+                charIdx++;
+                for (int x = 0; x < 35; x++ ) {
+                    currentChar=trace[charIdx];
+                    switch (currentChar) {
+                    case '.':
+                    case ' ':
+                    case '+':
+                    case '-':
+                    case '=':
+                    case '$':
+                    case '?':
+                        cell[x][linesRead].owner = NEUTRAL;
+                        break;
+                    case 'O':
+                    case '4':
+                        player[0].pos = Position(x,linesRead);
+                    case 'o':
+                    case '0':
+                        cell[x][linesRead].owner = 0;
+                        break;
+                    case 'X':
+                    case '5':
+                        player[1].pos = Position(x,linesRead);
+                    case 'x':
+                    case '1':
+                        cell[x][linesRead].owner = 1;
+                        break;
+                    case 'V':
+                    case '6':
+                        player[2].pos = Position(x,linesRead);
+                    case 'v':
+                    case '2':
+                        cell[x][linesRead].owner = 2;
+                        break;
+                    case 'I':
+                    case '7':
+                        player[3].pos = Position(x,linesRead);
+                    case 'i':
+                    case '3':
+                        cell[x][linesRead].owner = 3;
+                        break;
+                    }
+                    charIdx++;
+                }
+                charIdx++;
+                linesRead++;
+            }
+            charIdx++;
+        }
+
+    }
+
     void print(Position path[] = NULL) {
-        cerr << "   00000000001111111111222222222233333  " << endl;
-        cerr << "   01234567890123456789012345678901234  " << endl;
-        cerr << "  +-----------------------------------+  " << endl;
+        // chars with fixed width in last battles view: "#$+0123456789<=>E"
+        cerr << ">>>00000000001111111111222222222233333<<<" << endl;
+        cerr << ">>>01234567890123456789012345678901234<<<" << endl;
+        cerr << ">>>>>>>>>>>>>>>>>>>>><<<<<<<<<<<<<<<<<<<<" << endl;
         char output[20][35];
-        char ownerChars[5]  = "oxvi";
-        char playerChars[5] = "OXVI";
+        char ownerChars[5]  = "0123";
+        char playerChars[5] = "4567";
         for (int y = 0; y < 20; y++) {
             for (int x = 0; x < 35; x++) {
                 int owner = cell[x][y].owner;
-                char c = owner==NEUTRAL?' ':'?';
+                char c = owner==NEUTRAL?'=':'$';
                 if (owner>=0) {
                     c = ownerChars[owner];
                 }
@@ -622,7 +654,7 @@ public:
                 if (pos.x == -1) {
                     break;
                 } else {
-                    output[pos.y][pos.x] = '.';
+                    output[pos.y][pos.x] = '+';
                 }
                 idx++;
             }
@@ -631,15 +663,15 @@ public:
             output[player[p].pos.y][player[p].pos.x] = playerChars[p];
         }
         for (int y = 0; y < 20; y++) {
-            fprintf(stderr,"%2d|",y);
+            fprintf(stderr,"%02d>",y);
             for (int x = 0; x < 35; x++) {
                 cerr << output[y][x];
             }
-            fprintf(stderr,"|%d\n",y);
+            fprintf(stderr,"<%d\n",y);
         }
-        cerr << "  +-----------------------------------+  " << endl;
-        cerr << "   00000000001111111111222222222233333  " << endl;
-        cerr << "   01234567890123456789012345678901234  " << endl;
+        cerr << ">>>>>>>>>>>>>>>>>>>>><<<<<<<<<<<<<<<<<<<<" << endl;
+        cerr << ">>>00000000001111111111222222222233333<<<" << endl;
+        cerr << ">>>01234567890123456789012345678901234<<<" << endl;
     }
 
 };
@@ -795,15 +827,46 @@ int main()
         currentGrid = &testGrid;
 */
 
+        /*
+        //test 3 for dead ends
+        nbPlayers = 4;
+        char *trace = {"00>33333333333333333333333333333333333<0\n"\
+                       "01>3==00000000007000000001111111111113<1\n"\
+                       "02>3==0=======3==000000041111111111113<2\n"\
+                       "03>3==0=======111111111111111111111113<3\n"\
+                       "04>33333333333111111111111111111111113<4\n"\
+                       "05>00000000333111111111111111111111113<5\n"\
+                       "06>00000000===111111111111111111111113<6\n"\
+                       "07>00000000===111111111111111111111113<7\n"\
+                       "08>00000000000111111111111111111111113<8\n"\
+                       "09>00000000000111111111111111111111113<9\n"\
+                       "10>00000000000111111111111111111111113<10\n"\
+                       "11>00000000000111111111111111111111113<11\n"\
+                       "12>00000000000111111111111111111111113<12\n"\
+                       "13>0000000000000000==111111111111111=3<13\n"\
+                       "14>0000000000000000=1511111111111111=3<14\n"\
+                       "15>0000000000000000=1111111211111111=3<15\n"\
+                       "16>0000000000000000=1111111=11111111=3<16\n"\
+                       "17>0000000000000000=1111111=11111111=3<17\n"\
+                       "18>000000000000000001111111=11111111=3<18\n"\
+                       "19>00000000000000000333333333333333333<19\n"};
+        Grid testGrid(trace);
+        testGrid.print();
+        currentGrid = &testGrid;
+        */
+
+
 
 #define MAX_DEPTH 112
-        int maxScore = 0;
+        int maxScore = currentGrid->score(0);
         Position bestPath[701];
         Grid opponentPattern[MAX_DEPTH];
         depth = 1;
 
         for (int p=1; p<nbPlayers; p++) {
-            opponentPattern[0].cell[currentGrid->player[p].pos.x][currentGrid->player[p].pos.y].owner = p;
+            if (currentGrid->player[p].pos != timeLines.mainLine.grid[timeLines.mainLine.round-1].player[p].pos) {
+                opponentPattern[0].cell[currentGrid->player[p].pos.x][currentGrid->player[p].pos.y].owner = p;
+            }
         }
         for (int i = 1; i < MAX_DEPTH ; i++) {
             for (int y = 0; y < 20; y++) {
@@ -864,6 +927,17 @@ int main()
             depth++;
         }
 
+        /*
+        char * fixedWidthChars = "#$+0123456789<=>E";
+        for (int c = 0; c < strlen(fixedWidthChars); c++) {
+            for (int i =0; i<20; i++) {
+                cerr << fixedWidthChars[c];
+            }
+            cerr << endl;
+        }
+        */
+
+
         currentGrid->print(&bestPath[1]);
 
         fprintf(stderr,"Depth:%d  Paths: %d  Fills: %d  Fills/Paths: %.2f%%\n",
@@ -872,7 +946,7 @@ int main()
         Position nextPos(-1,-1);
 
         if (bestPath[1].x != -1) {
-            cerr << "Best Path Found! maxScore = " << maxScore << endl;
+            fprintf(stderr,"Best Path Found! pathLen=%d maxScore = %d\n",pathLen(bestPath),maxScore);
             nextPos = bestPath[1];
         } else {
             //Go to the closest neutral cell
