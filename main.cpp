@@ -39,16 +39,70 @@ void checkTimeOut(){
     }
 }
 
+enum Strategy {
+    AssumeNoAgression, AssumeWorst
+};
+
+Strategy strategy = AssumeNoAgression;
+
 enum Direction {
-    Up,Down,Left,Right,UpLeft,UpRight,DownLeft,DownRight
+    Up,Right,Down,Left,UpRight,DownRight,DownLeft,UpLeft,None
 };
 Direction around[8] = {UpLeft, Up, UpRight, Right, DownRight, Down, DownLeft, Left};
-
 
 Direction &operator++(Direction &dir){
     dir = (Direction)(dir + 1);
     return dir;
 }
+
+void print(Direction dir) {
+    switch(dir) {
+    case Up:
+        fprintf(stderr,"^\n|\n");
+        break;
+    case UpLeft:
+        fprintf(stderr,"<\n \\\n");
+        break;
+    case UpRight:
+        fprintf(stderr," >\n/\n");
+        break;
+    case Down:
+        fprintf(stderr,"|\nv\n");
+        break;
+    case DownLeft:
+        fprintf(stderr," />\n<\n");
+        break;
+    case DownRight:
+        fprintf(stderr,"\\\n>\n");
+        break;
+    case Left:
+        fprintf(stderr,"<-\n");
+        break;
+    case Right:
+        fprintf(stderr,"->\n");
+        break;
+    case None:
+        fprintf(stderr,"<>\n");
+        break;
+    default:
+        fprintf(stderr,"???\n");
+        break;
+    }
+}
+void printTurn(Direction dir) {
+    switch(dir) {
+    case Left:
+        fprintf(stderr,"<-\n |\n");
+        break;
+    case Right:
+        fprintf(stderr,"->\n|\n");
+        break;
+    default:
+        fprintf(stderr,"???\n");
+        break;
+    }
+}
+
 
 class Cell {
 public:
@@ -147,6 +201,11 @@ public:
             x = 34;
         }
     }
+
+    bool isValid() {
+        return y>=0 && y<20 && x>=0 && x<35;
+    }
+
     void print(){
         fprintf(stderr,"(%d,%d)",x,y);
     }
@@ -162,6 +221,41 @@ public:
         Position pos = *this;
         pos.move(dir);
         return pos;
+    }
+
+    /* useful to get a vector */
+    const Position operator-(const Position &other) {
+        Position pos(x-other.x,y-other.y);
+        return pos;
+    }
+
+    /* only makes sense on a vector */
+    Direction direction() const {
+        if (x == 0) {
+            if (y==0) {
+                return None;
+            } else if (y>0) {
+                return Down;
+            } else {
+                return Up;
+            }
+        } else if (x>0) {
+            if (y==0) {
+                return Right;
+            } else if (y>0) {
+                return DownRight;
+            } else {
+                return UpRight;
+            }
+        } else {
+            if (y==0) {
+                return Left;
+            } else if (y>0) {
+                return DownLeft;
+            } else {
+                return UpLeft;
+            }
+        }
     }
 
     static Position topLeft(Position &a,Position&b){
@@ -223,12 +317,15 @@ int pathLen(Position *path) {
             idx++;
         }
     }
+    return 0;
 }
 
 class Player {
 public:
     Position pos;
     int backInTimeLeft;
+    Direction direction;
+    Direction lastTurn; //Left or Right
 };
 
 class Grid {
@@ -236,9 +333,7 @@ public:
     Cell cell[35][20]; /* 700 */
     Player player[4];
 
-
     Grid(){}
-
 
     Cell &cellAt(const Position pos) {
         return cell[pos.x][pos.y];
@@ -255,7 +350,7 @@ public:
     }
 
     bool cellHasAround(int x,int y,int p) {
-        for (Direction dir = Up; dir <= DownRight; ++dir) {
+        for (Direction dir = Up; dir <= UpLeft; ++dir) {
             if (cellAt(Position(x,y)+dir).owner == p) {
                 return true;
             }
@@ -268,7 +363,7 @@ public:
         for (int y = 0; y < 20; y++) {
             for (int x = 0; x < 35; x++) {
                 if (cell[x][y].owner == p) {
-                    for (Direction dir = Up; dir <= Right; ++dir) {
+                    for (Direction dir = Up; dir <= Left; ++dir) {
                         newGrid.cellAt(Position(x,y)+dir).owner = p;
                     }
                 }
@@ -302,7 +397,7 @@ public:
         if (cellAt(pos).owner == NEUTRAL) {
             cellAt(pos).owner = TREATED;
             bool res = true;
-            for (Direction dir = Up; dir <= DownRight; ++dir) {
+            for (Direction dir = Up; dir <= UpLeft; ++dir) {
                 Position newPos = pos;
                 if (newPos.move(dir)) {
                     res &= attemptFill(newPos,p);
@@ -328,7 +423,7 @@ public:
     bool attemptFillQuick(Position pos, int &p) {
         if (cellAt(pos).owner == NEUTRAL) {
             cellAt(pos).owner = TREATED;
-            for (Direction dir = Up; dir <= DownRight; ++dir) {
+            for (Direction dir = Up; dir <= UpLeft; ++dir) {
                 Position newPos = pos;
                 if (newPos.move(dir)) {
                     if (!attemptFillQuick(newPos,p)) {
@@ -370,7 +465,7 @@ public:
     void fill(Position pos, int p) {
         if (cellAt(pos).owner == NEUTRAL) {
             cellAt(pos).owner = p;
-            for (Direction dir = Up; dir <= DownRight; ++dir) {
+            for (Direction dir = Up; dir <= UpLeft; ++dir) {
                 Position newPos = pos;
                 if (newPos.move(dir)) {
                     fill(newPos,p);
@@ -411,6 +506,33 @@ public:
         Grid tempGrid = *this;
         if (tempGrid.attemptFillQuick(pos,p)) {
             fill(pos,p);
+        }
+    }
+
+    void moveMe(Direction dir) {
+        if (strategy == AssumeNoAgression) {
+            for (int p = 1; p< nbPlayers; p++) {
+                autoMovePlayer(p);
+            }
+        }
+        movePlayer(0,dir);
+    }
+
+    void autoMovePlayer(int p) {
+        Direction newDir[5] = {player[p].direction, // Straight
+                               (Direction)((player[p].direction+(player[p].lastTurn==Left?3:1))%4), //Last Turn
+                               (Direction)((player[p].direction+(player[p].lastTurn==Left?1:3))%4), //opposite of last turn
+                               (Direction)((player[p].direction+2)%4),// reverse
+                               player[p].direction}; // Straight (last resort)
+        for (int d = 0; d < 5; d++) {
+            if (cellAround(player[p].pos,newDir[d]).owner == NEUTRAL || d == 4) {
+                movePlayer(p,newDir[d]);
+                player[p].direction = newDir[d];
+                if (d == 2) {
+                    player[p].lastTurn = player[p].lastTurn==Left?Right:Left;
+                }
+                break;
+            }
         }
     }
 
@@ -489,7 +611,7 @@ public:
         //print();
         bool isDeadEnd = true;
         if (currentPathLen < maxPathLen) {
-            for (Direction dir = Up; dir <= Right; ++dir) {
+            for (Direction dir = Up; dir <= Left; ++dir) {
                 Grid nextGrid = *this;
                 int newPathLen = currentPathLen;
                 bool hasMoved = false;
@@ -530,7 +652,7 @@ public:
                 } else {
                     newForbiddenCells = forbiddenCells;
                 }
-                for (Direction dir = Up; dir <= Right; ++dir) {
+                for (Direction dir = Up; dir <= Left; ++dir) {
                     pos = player[0].pos;
                     if (pos.move(dir)) {
                         if (newForbiddenCells->cellAt(pos).owner == currentPathLen+1) {
@@ -651,7 +773,7 @@ public:
             int idx = 0;
             while (true) {
                 Position pos = path[idx];
-                if (pos.x == -1) {
+                if (!pos.isValid()) {
                     break;
                 } else {
                     output[pos.y][pos.x] = '+';
@@ -660,7 +782,9 @@ public:
             }
         }
         for (int p=0; p<nbPlayers; p++) {
-            output[player[p].pos.y][player[p].pos.x] = playerChars[p];
+            if (player[p].pos.isValid()) {
+                output[player[p].pos.y][player[p].pos.x] = playerChars[p];
+            }
         }
         for (int y = 0; y < 20; y++) {
             fprintf(stderr,"%02d>",y);
@@ -750,6 +874,49 @@ int main()
             }
         }
         roundStart = high_resolution_clock::now();
+
+        if (gameRound == 0) {
+            /* assume players are going to go towards the closest corner, horizontally then vertically */
+            for (int p = 0; p < nbPlayers; p++) {
+                Position pos = currentGrid->player[p].pos;
+                if (pos.x < 18) {
+                    if (pos.y < 10) {
+                        currentGrid->player[p].direction = Left;
+                        currentGrid->player[p].lastTurn = Right;
+                    } else {
+                        currentGrid->player[p].direction = Left;
+                        currentGrid->player[p].lastTurn = Left;
+                    }
+                } else {
+                    if (pos.y < 10) {
+                        currentGrid->player[p].direction = Right;
+                        currentGrid->player[p].lastTurn = Left;
+                    } else {
+                        currentGrid->player[p].direction = Right;
+                        currentGrid->player[p].lastTurn = Right;
+                    }
+                }
+            }
+        }
+
+        if (gameRound>0) {
+            for (int p = 0; p < nbPlayers; p++) {
+                Player previousPlayer = currentTimeLine->grid[currentTimeLine->round-1].player[p];
+                Player *currentPlayer = &(currentGrid->player[p]);
+                currentPlayer->direction = (currentPlayer->pos - previousPlayer.pos).direction();
+                currentPlayer->lastTurn  = previousPlayer.lastTurn;
+                if ((previousPlayer.direction+1)%4 == currentPlayer->direction) {
+                    currentPlayer->lastTurn = Right;
+                } else if ((previousPlayer.direction-1+4)%4 == currentPlayer->direction ) {
+                    currentPlayer->lastTurn = Left;
+                }
+                //fprintf(stderr,"Player %d:\n",p);
+                //print(currentPlayer->direction);
+                //printTurn(currentPlayer->lastTurn);
+            }
+        }
+
+
 
         /*
         {
@@ -863,18 +1030,46 @@ int main()
         Grid opponentPattern[MAX_DEPTH];
         depth = 1;
 
-        for (int p=1; p<nbPlayers; p++) {
-            if (currentGrid->player[p].pos != timeLines.mainLine.grid[timeLines.mainLine.round-1].player[p].pos) {
-                opponentPattern[0].cell[currentGrid->player[p].pos.x][currentGrid->player[p].pos.y].owner = p;
+
+        if (strategy == AssumeNoAgression) {
+            opponentPattern[0] = *currentGrid;
+            for (int i = 1; i < MAX_DEPTH ; i++) {
+                opponentPattern[i] = opponentPattern[i-1];
+                for (int p=0; p<nbPlayers; p++) {
+                    Player player = opponentPattern[i].player[p];
+                    Direction newDir[5] = {player.direction, // Straight
+                                           (Direction)((player.direction+(player.lastTurn==Left?3:1))%4), //Last Turn
+                                           (Direction)((player.direction+(player.lastTurn==Left?1:3))%4), //opposite of last turn
+                                           (Direction)((player.direction+2)%4),// reverse
+                                           player.direction}; // Straight (last resort)
+                    for (int d = 0; d < 5; d++) {
+                        if (opponentPattern[i-1].cellAround(player.pos,newDir[d]).owner == NEUTRAL || d == 4) {
+                            opponentPattern[i].movePlayer(p,newDir[d]);
+                            opponentPattern[i].player[p].direction = newDir[d];
+                            if (d == 2) {
+                                opponentPattern[i].player[p].lastTurn = opponentPattern[i].player[p].lastTurn==Left?Right:Left;
+                            }
+                            break;
+                        }
+                    }
+                }
             }
-        }
-        for (int i = 1; i < MAX_DEPTH ; i++) {
-            for (int y = 0; y < 20; y++) {
-                for (int x = 0; x < 35; x++) {
-                    int owner = opponentPattern[i-1].cell[x][y].owner;
-                    if (owner >= 1) {
-                        for (Direction dir = Up; dir <= Right; ++dir) {
-                            opponentPattern[i].cellAt(Position(x,y)+dir).owner = owner;
+            //opponentPattern[30].print();
+        } else if (strategy == AssumeWorst) {
+            for (int p=0; p<nbPlayers; p++) {
+                Position pos = currentGrid->player[p].pos;
+                if (pos.isValid() && pos != timeLines.mainLine.grid[timeLines.mainLine.round-1].player[p].pos) {
+                    opponentPattern[0].cellAt(currentGrid->player[p].pos).owner = p;
+                }
+            }
+            for (int i = 1; i < MAX_DEPTH ; i++) {
+                for (int y = 0; y < 20; y++) {
+                    for (int x = 0; x < 35; x++) {
+                        int owner = opponentPattern[i-1].cell[x][y].owner;
+                        if (owner >= 1) {
+                            for (Direction dir = Up; dir <= Left; ++dir) {
+                                opponentPattern[i].cellAt(Position(x,y)+dir).owner = owner;
+                            }
                         }
                     }
                 }
@@ -910,6 +1105,9 @@ int main()
                                   bestPath,
                                   NULL);
 
+            if (depth>22) {
+                tempGrid.print(bestPath);
+            }
 
             //checkTimeOut();
             //printPath(bestPath);
@@ -967,7 +1165,7 @@ int main()
                                 nextPos = Position(x,y);
                                 cerr << " --> found" << endl;
                             } else {
-                                for (Direction dir = Up; dir <= Right; ++dir) {
+                                for (Direction dir = Up; dir <= Left; ++dir) {
                                     Position pos(x,y);
                                     pos.move(dir);
                                     newPattern.cellAt(pos).owner = 0;
