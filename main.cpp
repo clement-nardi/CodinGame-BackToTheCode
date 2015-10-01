@@ -258,6 +258,22 @@ public:
         }
     }
 
+    void stepTowards(Position target) {
+        if (x == target.x) {
+            //same column
+            if (y < target.y) {
+                y++;
+            } else if (y > target.y) {
+                y--;
+            }
+        } else if (x < target.x) {
+            x++;
+        } else {
+            x--;
+        }
+        secure();
+    }
+
     static Position topLeft(Position &a,Position&b){
         return Position(min(a.x,b.x),min(a.y,b.y));
     }
@@ -509,6 +525,24 @@ public:
         }
     }
 
+    Position closestNeutral(Position pos) {
+        Position minPos;
+        int minDist = 100;
+        for (int y = 0; y < 20; y++) {
+            for (int x = 0; x < 35; x++) {
+                Position dest(x,y);
+                if (cellAt(dest).owner == NEUTRAL) {
+                    int dist = dest.distance(pos);
+                    if (dist < minDist) {
+                        minDist = dest.distance(pos);
+                        minPos = dest;
+                    }
+                }
+            }
+        }
+        return minPos;
+    }
+
     void moveMe(Direction dir) {
         if (strategy == AssumeNoAgression) {
             for (int p = 1; p< nbPlayers; p++) {
@@ -519,13 +553,13 @@ public:
     }
 
     void autoMovePlayer(int p) {
-        Direction newDir[5] = {player[p].direction, // Straight
+        Direction newDir[4] = {player[p].direction, // Straight
                                (Direction)((player[p].direction+(player[p].lastTurn==Left?3:1))%4), //Last Turn
                                (Direction)((player[p].direction+(player[p].lastTurn==Left?1:3))%4), //opposite of last turn
-                               (Direction)((player[p].direction+2)%4),// reverse
-                               player[p].direction}; // Straight (last resort)
-        for (int d = 0; d < 5; d++) {
-            if (cellAround(player[p].pos,newDir[d]).owner == NEUTRAL || d == 4) {
+                               (Direction)((player[p].direction+2)%4)}; // reverse
+        int d;
+        for (d = 0; d < 4; d++) {
+            if (cellAround(player[p].pos,newDir[d]).owner == NEUTRAL) {
                 movePlayer(p,newDir[d]);
                 player[p].direction = newDir[d];
                 if (d == 2) {
@@ -534,12 +568,23 @@ public:
                 break;
             }
         }
+        if (d >= 4) {
+            movePlayer(p,closestNeutral(player[p].pos));
+        }
     }
 
     void movePlayer(int p, Direction dir){
-        Position pos;
         player[p].pos.move(dir);
-        pos = player[p].pos;
+        CheckAndFill(p);
+    }
+
+    void movePlayer(int p, Position target){
+        player[p].pos.stepTowards(target);
+        CheckAndFill(p);
+    }
+
+    void CheckAndFill(int p) {
+        Position pos = player[p].pos;
         if (cellAt(pos).owner == NEUTRAL) {
             cellAt(pos).owner = p;
             for (int i=1; i<8; i = i+2) {
@@ -1122,35 +1167,7 @@ int main()
         } else {
             //Go to the closest neutral cell
             cerr << "Search for closest neutral cell" << endl;
-            Grid myPattern;
-            myPattern.cell[currentGrid->player[0].pos.x][currentGrid->player[0].pos.y].owner = 0;
-
-            // Grow my pattern
-            bool goOn = true;
-            while (goOn) {
-                goOn = false;
-                Grid newPattern = myPattern;
-                for (int y = 0; y < 20 && nextPos.x == -1; y++) {
-                    for (int x = 0; x < 35 && nextPos.x == -1; x++) {
-                        if (myPattern.cell[x][y].owner==0) {
-                            if (currentGrid->cell[x][y].owner==NEUTRAL &&
-                                !currentGrid->cellHasOpponentOnIt(x,y)) {
-                                nextPos = Position(x,y);
-                                cerr << " --> found" << endl;
-                            } else {
-                                for (Direction dir = Up; dir <= Left; ++dir) {
-                                    Position pos(x,y);
-                                    pos.move(dir);
-                                    newPattern.cellAt(pos).owner = 0;
-                                }
-                            }
-                        } else {
-                            goOn = true;
-                        }
-                    }
-                }
-                myPattern = newPattern;
-            }
+            nextPos = currentGrid->closestNeutral(currentGrid->player[0].pos);
         }
 
         nextPos.secure();
