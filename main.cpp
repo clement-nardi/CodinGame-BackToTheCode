@@ -619,7 +619,7 @@ public:
                     Position pos = nextGrid.player[0].pos;
                     pos.move(dir);
                     if (nextGrid.cellAt(pos).owner == NEUTRAL) {
-                        nextGrid.movePlayer(0,dir);
+                        nextGrid.moveMe(dir);
                         currentPath[++newPathLen] = nextGrid.player[0].pos;
                         hasMoved = true;
                     } else {
@@ -658,7 +658,7 @@ public:
                         if (newForbiddenCells->cellAt(pos).owner == currentPathLen+1) {
                             newForbiddenCells->cellAt(pos).owner = TREATED;
                             Grid nextGrid = *this;
-                            nextGrid.player[0].pos = pos;
+                            nextGrid.moveMe(dir);
                             currentPath[currentPathLen+1] = pos;
                             nextGrid.findBestPath(currentPathLen+1,
                                                   maxPathLen,
@@ -1030,32 +1030,7 @@ int main()
         Grid opponentPattern[MAX_DEPTH];
         depth = 1;
 
-
-        if (strategy == AssumeNoAgression) {
-            opponentPattern[0] = *currentGrid;
-            for (int i = 1; i < MAX_DEPTH ; i++) {
-                opponentPattern[i] = opponentPattern[i-1];
-                for (int p=0; p<nbPlayers; p++) {
-                    Player player = opponentPattern[i].player[p];
-                    Direction newDir[5] = {player.direction, // Straight
-                                           (Direction)((player.direction+(player.lastTurn==Left?3:1))%4), //Last Turn
-                                           (Direction)((player.direction+(player.lastTurn==Left?1:3))%4), //opposite of last turn
-                                           (Direction)((player.direction+2)%4),// reverse
-                                           player.direction}; // Straight (last resort)
-                    for (int d = 0; d < 5; d++) {
-                        if (opponentPattern[i-1].cellAround(player.pos,newDir[d]).owner == NEUTRAL || d == 4) {
-                            opponentPattern[i].movePlayer(p,newDir[d]);
-                            opponentPattern[i].player[p].direction = newDir[d];
-                            if (d == 2) {
-                                opponentPattern[i].player[p].lastTurn = opponentPattern[i].player[p].lastTurn==Left?Right:Left;
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-            //opponentPattern[30].print();
-        } else if (strategy == AssumeWorst) {
+        if (strategy == AssumeWorst) {
             for (int p=0; p<nbPlayers; p++) {
                 Position pos = currentGrid->player[p].pos;
                 if (pos.isValid() && pos != timeLines.mainLine.grid[timeLines.mainLine.round-1].player[p].pos) {
@@ -1083,12 +1058,14 @@ int main()
             Position currentPath[701];
             currentPath[0] = currentGrid->player[0].pos;
 
-            for (int y = 0; y < 20; y++) {
-                for (int x = 0; x < 35; x++) {
-                    int owner = opponentPattern[depth].cell[x][y].owner;
-                    if (owner>0) {
-                        if (tempGrid.cell[x][y].owner == NEUTRAL) {
-                            tempGrid.cell[x][y].owner = owner;
+            if (strategy == AssumeWorst) {
+                for (int y = 0; y < 20; y++) {
+                    for (int x = 0; x < 35; x++) {
+                        int owner = opponentPattern[depth].cell[x][y].owner;
+                        if (owner>0) {
+                            if (tempGrid.cell[x][y].owner == NEUTRAL) {
+                                tempGrid.cell[x][y].owner = owner;
+                            }
                         }
                     }
                 }
@@ -1104,10 +1081,6 @@ int main()
                                   currentPath,
                                   bestPath,
                                   NULL);
-
-            if (depth>22) {
-                tempGrid.print(bestPath);
-            }
 
             //checkTimeOut();
             //printPath(bestPath);
