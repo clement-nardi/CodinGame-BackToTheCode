@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <stdio.h>
 #include <chrono>
+#include <deque>
 
 #define NEUTRAL -1
 #define TREATED -2
@@ -16,10 +17,10 @@ class Grid;
 
 int nbPlayers;
 
-int countPaths;
+int countExpansions;
 int countFill;
 bool timeout;
-int accelerationLevel;
+int stepSize;
 high_resolution_clock::time_point roundStart;
 
 int depth;
@@ -31,9 +32,9 @@ void checkTimeOut(){
     if (time_span.count() >0.095) {
         timeout = true;
     }
-    if (time_span.count() > 0.05 && accelerationLevel == 0 ||
-        time_span.count() > 0.07 && accelerationLevel == 1    ) {
-        accelerationLevel++;
+    if (time_span.count() > 0.05 && stepSize == 0 ||
+        time_span.count() > 0.07 && stepSize == 1    ) {
+        //accelerationLevel++;
 //        fprintf(stderr,"ACCELERATE: %d Depth:%d  Paths: %d  Fills: %d  Fills/Paths: %.2f%%\n",
 //                accelerationLevel,depth,countPaths,countFill,(float)countFill/(float)countPaths*(float)100);
     }
@@ -44,6 +45,23 @@ enum Strategy {
 };
 
 Strategy strategy = AssumeNoAgression;
+
+#define GRID_CACHE_SIZE 10000
+
+class GridCache;
+
+class GridFactory {
+public:
+    std::vector<GridCache *> cache;
+    int current;
+    GridFactory();
+    Grid *getNewGrid();
+    void reset();
+    int capacity();
+    int size();
+};
+
+GridFactory gridFactory;
 
 enum Direction {
     Up,Right,Down,Left,UpRight,DownRight,DownLeft,UpLeft,None
@@ -349,6 +367,11 @@ public:
     Cell cell[35][20]; /* 700 */
     Player player[4];
 
+    Grid * moveAwayPattern;
+    int moveAwayStep;
+
+    Grid * previousGrid;
+
     Grid(){}
 
     Cell &cellAt(const Position pos) {
@@ -640,101 +663,67 @@ public:
         }
     }
 
-    void findBestPath(int currentPathLen,
-                      int maxPathLen,
-                      int *maxScore,
-                      Position currentPath[],
-                      Position bestPath[],
-                      Grid *forbiddenCells) {
-        countPaths++;
-        if (timeout) return;
-        if (countPaths%500 == 0) {
+    std::vector<Grid *> nextSteps() {
+        std::vector<Grid *> steps;
+        bool isDeadEnd = true;
+        countExpansions++;
+        if (countExpansions%500 == 0) {
             checkTimeOut();
         }
-        //cerr << "evaluating: " << endl;
-        //currentPath[currentPathLen+1] = Position();printPath(currentPath);
-        //print();
-        bool isDeadEnd = true;
-        if (currentPathLen < maxPathLen) {
-            for (Direction dir = Up; dir <= Left; ++dir) {
-                Grid nextGrid = *this;
-                int newPathLen = currentPathLen;
-                bool hasMoved = false;
-                for (int i = 0; i<accelerationLevel+1 && currentPathLen < maxPathLen; i++) {
-                    Position pos = nextGrid.player[0].pos;
-                    pos.move(dir);
-                    if (nextGrid.cellAt(pos).owner == NEUTRAL) {
-                        nextGrid.moveMe(dir);
-                        currentPath[++newPathLen] = nextGrid.player[0].pos;
-                        hasMoved = true;
+        for (Direction dir = Up; dir <= Left; ++dir) {
+            Grid *nextGrid = NULL;
+            if (cellAround(player[0].pos,dir).owner == NEUTRAL) {
+                nextGrid = gridFactory.getNewGrid();
+                *nextGrid = *this;
+                nextGrid->previousGrid = this;
+                nextGrid->moveMe(dir);
+                //Acceleration
+                for (int i = 1; i<stepSize; i++) {
+                    if (nextGrid->cellAround(nextGrid->player[0].pos,dir).owner == NEUTRAL) {
+                        nextGrid->moveMe(dir);
                     } else {
                         break;
                     }
                 }
-                if (hasMoved) {
-                    nextGrid.findBestPath(newPathLen,
-                                          maxPathLen,
-                                          maxScore,
-                                          currentPath,
-                                          bestPath,
-                                          forbiddenCells);
-                    isDeadEnd = false;
-                }
             }
-            //There is no Neutral cell around, go away from here
-            if (isDeadEnd) {
-                Position pos = player[0].pos;
-                Grid *newForbiddenCells;
-                if (forbiddenCells == NULL) {
-                    //cerr << "New " << endl;
-                    newForbiddenCells = new Grid();
-                    for (int y = 0; y < 20; y++) {
-                        for (int x = 0; x < 35; x++) {
-                            newForbiddenCells->cell[x][y].owner = currentPathLen + pos.distance(Position(x,y));
-                        }
-                    }
-                    newForbiddenCells->cellAt(pos).owner = TREATED;
-                } else {
-                    newForbiddenCells = forbiddenCells;
-                }
-                for (Direction dir = Up; dir <= Left; ++dir) {
-                    pos = player[0].pos;
-                    if (pos.move(dir)) {
-                        if (newForbiddenCells->cellAt(pos).owner == currentPathLen+1) {
-                            newForbiddenCells->cellAt(pos).owner = TREATED;
-                            Grid nextGrid = *this;
-                            nextGrid.moveMe(dir);
-                            currentPath[currentPathLen+1] = pos;
-                            nextGrid.findBestPath(currentPathLen+1,
-                                                  maxPathLen,
-                                                  maxScore,
-                                                  currentPath,
-                                                  bestPath,
-                                                  newForbiddenCells);
-                            isDeadEnd = false;
-                        }
-                    }
-                }
-
-                if (forbiddenCells == NULL) {
-                    delete newForbiddenCells;
-                }
+            if (nextGrid != NULL) {
+                steps.push_back(nextGrid);
+                isDeadEnd = false;
             }
         }
         if (isDeadEnd) {
-            int currentScore = score(0);
-            currentPath[currentPathLen+1] = Position();
-            //cerr << "---" << endl;
-            //printPath(currentPath);
-            //print();
-            //cerr << "score=" << currentScore << endl;
-            //cerr << "deadEnd. Score=" << currentScore << " max=" << *maxScore << endl;
-            if (currentScore>*maxScore) {
-                *maxScore = currentScore;
-                memcpy(bestPath,currentPath,(currentPathLen+1)*sizeof(Position));
-                bestPath[currentPathLen+1] = Position();
+            //There is no Neutral cell around, go away from here
+            Position pos;
+            if (moveAwayPattern == NULL) {
+                pos = player[0].pos;
+                //cerr << "New " << endl;
+                moveAwayPattern = gridFactory.getNewGrid();
+                for (int y = 0; y < 20; y++) {
+                    for (int x = 0; x < 35; x++) {
+                        moveAwayPattern->cell[x][y].owner = pos.distance(Position(x,y));
+                    }
+                }
+                moveAwayPattern->cellAt(pos).owner = TREATED;
+                moveAwayStep = 0;
             }
+            moveAwayStep++;
+            for (Direction dir = Up; dir <= Left; ++dir) {
+                pos = player[0].pos;
+                if (pos.move(dir)) {
+                    if (moveAwayPattern->cellAt(pos).owner == moveAwayStep) {
+                        moveAwayPattern->cellAt(pos).owner = TREATED;
+                        Grid *nextGrid = gridFactory.getNewGrid();
+                        *nextGrid = *this;
+                        nextGrid->previousGrid = this;
+                        nextGrid->moveMe(dir);
+                        steps.push_back(nextGrid);
+                    }
+                }
+            }
+        } else {
+            moveAwayPattern = NULL;
         }
+        return steps;
     }
 
     Grid(char *trace) {
@@ -796,7 +785,7 @@ public:
 
     }
 
-    void print(Position path[] = NULL) {
+    void print(Grid* pathEnd = NULL) {
         // chars with fixed width in last battles view: "#$+0123456789<=>E"
         cerr << ">>>00000000001111111111222222222233333<<<" << endl;
         cerr << ">>>01234567890123456789012345678901234<<<" << endl;
@@ -814,17 +803,10 @@ public:
                 output[y][x] = c;
             }
         }
-        if (path != NULL) {
-            int idx = 0;
-            while (true) {
-                Position pos = path[idx];
-                if (!pos.isValid()) {
-                    break;
-                } else {
-                    output[pos.y][pos.x] = '+';
-                }
-                idx++;
-            }
+        while (pathEnd != NULL) {
+            Position pos = pathEnd->player[0].pos;
+            output[pos.y][pos.x] = '+';
+            pathEnd = pathEnd->previousGrid;
         }
         for (int p=0; p<nbPlayers; p++) {
             if (player[p].pos.isValid()) {
@@ -843,7 +825,99 @@ public:
         cerr << ">>>01234567890123456789012345678901234<<<" << endl;
     }
 
+    void printPath(int p) {
+        char output[20][35];
+        Position pos;
+        Position topLeft(34,19);
+        Position bottomRight(0,0);
+        memset(output,' ',20*35*sizeof(char));
+        Grid *grid = this;
+        while (grid != NULL) {
+            pos = grid->player[p].pos;
+            output[pos.y][pos.x] = '+';
+            topLeft = Position::topLeft(topLeft,pos);
+            bottomRight = Position::bottomRight(bottomRight,pos);
+            grid = grid->previousGrid;
+        }
+        output[pos.y][pos.x] = 'O';
+
+        for (int y = topLeft.y; y <= bottomRight.y; y++) {
+            for (int x = topLeft.x; x <= bottomRight.x; x++) {
+                cerr << output[y][x];
+            }
+            cerr << endl;
+        }
+    }
+
+    int pathLen() {
+        Grid *grid = this;
+        int res = 0;
+        while (grid->previousGrid != NULL) {
+            res+=grid->player[0].pos.distance(grid->previousGrid->player[0].pos);
+            grid = grid->previousGrid;
+        }
+        return res;
+    }
+
+    Position pathAt(int i) {
+        std::deque<Position> path;
+        Grid *grid = this;
+        while (grid != NULL) {
+            path.push_front(grid->player[0].pos);
+            grid = grid->previousGrid;
+        }
+        return path.at(i);
+    }
+
 };
+
+class GridCache {
+public:
+    Grid data[GRID_CACHE_SIZE];
+    int current;
+
+    GridCache() {
+        current = 0;
+    }
+    bool isFull() {
+        return current == GRID_CACHE_SIZE;
+    }
+    Grid *getNext() {
+        return &data[current++];
+    }
+    Grid *at(int i) {
+        return &data[i];
+    }
+};
+
+GridFactory::GridFactory() {
+    current = 0;
+    cache.push_back(new GridCache());
+}
+
+Grid *GridFactory::getNewGrid() {
+    if (cache.at(current)->isFull()) {
+        current++;
+        if (current>=cache.size()) {
+            cache.push_back(new GridCache());
+        } else {
+            cache.at(current)->current = 0;
+        }
+    }
+    return cache.at(current)->getNext();
+}
+void GridFactory::reset() {
+    current = 0;
+    cache.at(0)->current = 0;
+}
+
+int GridFactory::capacity(){
+    return cache.size()*GRID_CACHE_SIZE;
+}
+
+int GridFactory::size(){
+    return cache.at(current)->current + current*GRID_CACHE_SIZE;
+}
 
 class TimeLine {
 public:
@@ -878,10 +952,10 @@ int main()
         TimeLine *currentTimeLine = &(timeLines.mainLine);
         Grid *currentGrid;
 
-        countPaths = 0;
+        countExpansions = 0;
         countFill = 0;
         timeout = false;
-        accelerationLevel = 0;
+        stepSize = 1;
 
         cin >> gameRound; cin.ignore();
         gameRound--;
@@ -1066,81 +1140,99 @@ int main()
         testGrid.print();
         currentGrid = &testGrid;
         */
+        /*
+        //test 4
+        nbPlayers = 2;
+        char *trace = {"00>===================================<0\n"\
+        "01>===================================<1\n"\
+        "02>=========00000000==================<2\n"\
+        "03>=========00000000==================<3\n"\
+        "04>=======0000000000==================<4\n"\
+        "05>=======0000000000==================<5\n"\
+        "06>=====000000000000==================<6\n"\
+        "07>=====000000000000==================<7\n"\
+        "08>=====000000000000==================<8\n"\
+        "09>====0000000000000==================<9\n"\
+        "10>====0000000000000==11111==11111====<10\n"\
+        "11>====0000000000000==1======1========<11\n"\
+        "12>====0000000000000==1======1========<12\n"\
+        "13>====0000000000000001======1==1111==<13\n"\
+        "14>====00000000======01======1====1===<14\n"\
+        "15>====00000000======01======1====5===<15\n"\
+        "16>====00000000======01111111111111===<16\n"\
+        "17>====00000000======0================<17\n"\
+        "18>====00000000======0================<18\n"\
+        "19>====00000000===4000================<19\n"};
+        Grid testGrid(trace);
+        //testGrid.print();
+        currentGrid = &testGrid;*/
 
+        currentGrid->moveAwayPattern = NULL;
+        currentGrid->previousGrid = NULL;
+        int currentScore = currentGrid->score(0);
+        int bestScore = currentScore;
+        Grid *bestGrid = currentGrid;
+        float bestScorePerStep = 0;
+        gridFactory.reset();
 
+        for (stepSize = 3; stepSize >= 1; stepSize--) {
+            std::deque<Grid *> states;
+            states.push_back(gridFactory.getNewGrid());
+            *(states.back()) = *currentGrid;
+            Grid *workingGrid;
 
-#define MAX_DEPTH 112
-        int maxScore = currentGrid->score(0);
-        Position bestPath[701];
-        Grid opponentPattern[MAX_DEPTH];
-        depth = 1;
+            int currentLenCount = 1;
+            int nextLenCount = 0;
+            int currentLen = 1;
+            countExpansions = 0;
+            countFill = 0;
 
-        if (strategy == AssumeWorst) {
-            for (int p=0; p<nbPlayers; p++) {
-                Position pos = currentGrid->player[p].pos;
-                if (pos.isValid() && pos != timeLines.mainLine.grid[timeLines.mainLine.round-1].player[p].pos) {
-                    opponentPattern[0].cellAt(currentGrid->player[p].pos).owner = p;
-                }
-            }
-            for (int i = 1; i < MAX_DEPTH ; i++) {
-                for (int y = 0; y < 20; y++) {
-                    for (int x = 0; x < 35; x++) {
-                        int owner = opponentPattern[i-1].cell[x][y].owner;
-                        if (owner >= 1) {
-                            for (Direction dir = Up; dir <= Left; ++dir) {
-                                opponentPattern[i].cellAt(Position(x,y)+dir).owner = owner;
-                            }
+            while (states.size()>0) {
+                workingGrid = states.front();
+                states.pop_front();
+
+                std::vector<Grid *> nextSteps = workingGrid->nextSteps();
+                states.insert(states.end(),nextSteps.begin(), nextSteps.end());
+
+                for (int i = 0; i<nextSteps.size(); i++) {
+                    Grid *nextGrid = nextSteps[i];
+                    int nextScore = nextGrid->score(0);
+                    if (nextScore > bestScore) {
+                        int nextPathLen = nextGrid->pathLen();
+                        float nextScorePerStep = ((float)nextScore)/((float)(nextPathLen+gameRound));
+                        if (nextScorePerStep > bestScorePerStep) {
+                            bestScore = nextScore;
+                            bestGrid = nextGrid;
+                            bestScorePerStep = nextScorePerStep;
+                            /*fprintf(stderr,"Best=%d:%d=%.2f \n",
+                                    bestScore-currentScore,bestGrid->pathLen(),bestScorePerStep);
+                            bestGrid->printPath(0);*/
                         }
                     }
                 }
-            }
-        }
 
-        bestPath[0] = currentGrid->player[0].pos;
+                nextLenCount += nextSteps.size();
+                currentLenCount--;
+                if (currentLenCount==0) {
+                    currentLenCount = nextLenCount;
+                    nextLenCount = 0;
+                    currentLen++;
+                    //cerr << currentLen << ":" << currentLenCount << " ";
+                }
 
-        while (depth < MAX_DEPTH) {
-            Grid tempGrid = *currentGrid;
-            Position currentPath[701];
-            currentPath[0] = currentGrid->player[0].pos;
-
-            if (strategy == AssumeWorst) {
-                for (int y = 0; y < 20; y++) {
-                    for (int x = 0; x < 35; x++) {
-                        int owner = opponentPattern[depth].cell[x][y].owner;
-                        if (owner>0) {
-                            if (tempGrid.cell[x][y].owner == NEUTRAL) {
-                                tempGrid.cell[x][y].owner = owner;
-                            }
-                        }
-                    }
+                if (timeout) {
+                    cerr << "TIMEOUT!!" << endl;
+                    break;
                 }
             }
-
-            //tempGrid.print();
-
-            int maxScoreSaved = maxScore;
-            //cerr << "DEPTH:" << depth << endl;
-
-            tempGrid.findBestPath(0,depth,
-                                  &maxScore,
-                                  currentPath,
-                                  bestPath,
-                                  NULL);
-
-            //checkTimeOut();
-            //printPath(bestPath);
-            //cerr << "maxScore = " << maxScore << endl;
-            //fprintf(stderr,"Paths: %d  Fills: %d  Fills/Paths: %.2f%%\n",countPaths,countFill,(float)countFill/(float)countPaths*(float)100);
-            if (maxScore == maxScoreSaved) {
-                //cerr << "Going further won't help" << endl;
-                //break;
-            }
+            fprintf(stderr,"LastDepth:%d  Expansions: %d  States: %d  Fills: %d  Best=%d:%d=%.2f \n",
+                    workingGrid->pathLen(),countExpansions,states.size()+countExpansions,countFill,
+                    bestScore-currentScore,bestGrid->pathLen(),bestScorePerStep);
 
             if (timeout) {
                 cerr << "TIMEOUT!!" << endl;
                 break;
             }
-            depth++;
         }
 
         /*
@@ -1154,16 +1246,16 @@ int main()
         */
 
 
-        currentGrid->print(&bestPath[1]);
+        currentGrid->print(bestGrid);
 
-        fprintf(stderr,"Depth:%d  Paths: %d  Fills: %d  Fills/Paths: %.2f%%\n",
-                depth,countPaths,countFill,(float)countFill/(float)countPaths*(float)100);
+        fprintf(stderr,"factory:%d/%d\n",gridFactory.size(),gridFactory.capacity());
+
 
         Position nextPos(-1,-1);
 
-        if (bestPath[1].x != -1) {
-            fprintf(stderr,"Best Path Found! pathLen=%d maxScore = %d\n",pathLen(bestPath),maxScore);
-            nextPos = bestPath[1];
+        if (bestGrid->pathLen()>0) {
+            fprintf(stderr,"Best Path Found! pathLen=%d bestScore = %d\n",bestGrid->pathLen(),bestScore);
+            nextPos = bestGrid->pathAt(1);
         } else {
             //Go to the closest neutral cell
             cerr << "Search for closest neutral cell" << endl;
