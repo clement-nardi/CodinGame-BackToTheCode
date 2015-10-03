@@ -40,6 +40,21 @@ void checkTimeOut(){
     }
 }
 
+/* Profiling feature */
+
+//#define PROFILE
+
+#ifdef PROFILE
+    double timeSpent[10];
+    #define FS high_resolution_clock::time_point functionStart = high_resolution_clock::now();
+    #define FE(i) duration<double> time_span = duration_cast<duration<double>>(high_resolution_clock::now() - functionStart);\
+                  timeSpent[i] += time_span.count();
+#else
+    #define FS
+    #define FE(i)
+#endif
+
+
 enum Strategy {
     AssumeNoAgression, AssumeWorst
 };
@@ -300,60 +315,6 @@ public:
     }
 };
 
-void printPath(Position *path) {
-    /*
-    int idx = 0;
-    while (true) {
-        Position pos = path[idx];
-        if (pos.x == -1) {
-            fprintf(stderr,"\n");
-            break;
-        } else {
-            fprintf(stderr,"(%d,%d)",pos.x,pos.y);
-        }
-        idx++;
-    }*/
-    char output[20][35];
-    Position topLeft(34,19);
-    Position bottomRight(0,0);
-    memset(output,' ',20*35*sizeof(char));
-    if (path != NULL) {
-        int idx = 0;
-        while (true) {
-            Position pos = path[idx];
-            if (pos.x == -1) {
-                break;
-            } else {
-                output[pos.y][pos.x] = idx==0?'O':'+';
-                topLeft = Position::topLeft(topLeft,pos);
-                bottomRight = Position::bottomRight(bottomRight,pos);
-            }
-            idx++;
-        }
-    }
-
-    for (int y = topLeft.y; y <= bottomRight.y; y++) {
-        for (int x = topLeft.x; x <= bottomRight.x; x++) {
-            cerr << output[y][x];
-        }
-        cerr << endl;
-    }
-}
-
-int pathLen(Position *path) {
-    if (path != NULL) {
-        int idx = 0;
-        while (true) {
-            Position pos = path[idx];
-            if (pos.x == -1) {
-                return idx;
-            }
-            idx++;
-        }
-    }
-    return 0;
-}
-
 class Player {
 public:
     Position pos;
@@ -378,47 +339,8 @@ public:
         return cell[pos.x][pos.y];
     }
 
-    bool cellHasOpponentOnIt(int x, int y) {
-        for (int p = 1; p < nbPlayers; p++) {
-            if (player[p].pos.x == x &&
-                player[p].pos.y == y   ) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    bool cellHasAround(int x,int y,int p) {
-        for (Direction dir = Up; dir <= UpLeft; ++dir) {
-            if (cellAt(Position(x,y)+dir).owner == p) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    void growPlayer(int p) {
-        Grid newGrid = *this;
-        for (int y = 0; y < 20; y++) {
-            for (int x = 0; x < 35; x++) {
-                if (cell[x][y].owner == p) {
-                    for (Direction dir = Up; dir <= Left; ++dir) {
-                        newGrid.cellAt(Position(x,y)+dir).owner = p;
-                    }
-                }
-            }
-        }
-        *this = newGrid;
-    }
-
-    void growOpponents() {
-        for (int p = 1; p < nbPlayers; p++) {
-            growPlayer(p);
-        }
-    }
-
-
     int score(int p) {
+        FS
         int score = 0;
         for (int y = 0; y < 20; y++) {
             for (int x = 0; x < 35; x++) {
@@ -427,78 +349,37 @@ public:
                 }
             }
         }
+        FE(4)
         return score;
-    }
-
-    /** returns true if this area can be filled
-      * returns the new owner in *p */
-    bool attemptFill(Position pos, int *p) {
-        if (cellAt(pos).owner == NEUTRAL) {
-            cellAt(pos).owner = TREATED;
-            bool res = true;
-            for (Direction dir = Up; dir <= UpLeft; ++dir) {
-                Position newPos = pos;
-                if (newPos.move(dir)) {
-                    res &= attemptFill(newPos,p);
-                } else {
-                    res = false;
-                }
-            }
-            return res;
-        } else {
-            if (cellAt(pos).owner == TREATED) {
-                return true;
-            } else if (*p == NEUTRAL) {
-                /* No player's cell encountered yet */
-                *p = cellAt(pos).owner;
-                return true;
-            } else {
-                return *p == cellAt(pos).owner;
-            }
-        }
     }
 
     /* stops as soon as possible */
     bool attemptFillQuick(Position pos, int &p) {
+        bool res = true;
         if (cellAt(pos).owner == NEUTRAL) {
             cellAt(pos).owner = TREATED;
             for (Direction dir = Up; dir <= UpLeft; ++dir) {
                 Position newPos = pos;
                 if (newPos.move(dir)) {
                     if (!attemptFillQuick(newPos,p)) {
-                        return false;
+                        res = false;
+                        break;
                     }
                 } else {
-                    return false;
+                    res = false;
+                    break;
                 }
             }
-            return true;
         } else {
             if (cellAt(pos).owner == TREATED) {
-                return true;
             } else if (p == NEUTRAL) {
                 /* No player's cell encountered yet */
                 p = cellAt(pos).owner;
-                return true;
             } else {
-                return p == cellAt(pos).owner;
+                res = p == cellAt(pos).owner;
             }
         }
-    }
-
-    /* abandonned */
-    bool followBorder(Position pos, int aroundIdx, int &p, int &fill) {
-        cellAt(pos).owner = fill;
-        for (int angle = 6; angle <=10; angle++) { //look left, then front, then right
-            Direction dir = around[(aroundIdx+angle)%8];
-            int owner = cellAround(pos,dir).owner;
-            if (owner == NEUTRAL) {
-                return followBorder(pos + dir,(aroundIdx+angle)%8,p,fill);
-            } else if (owner == p || owner == fill) {
-                /* only for front and right: test corner */
-                continue;
-            }
-        }
+        return res;
     }
 
     void fill(Position pos, int p) {
@@ -513,27 +394,6 @@ public:
         }
     }
 
-    void fillSurroundedAreas(){
-        countFill++;
-        Grid tempGrid = *this;
-        for (int y = 0; y < 20; y++) {
-            for (int x = 0; x < 35; x++) {
-                if (tempGrid.cell[x][y].owner == NEUTRAL) {
-                    int newOwner = NEUTRAL;
-                    bool onlyOneBorder;
-                    //fprintf(stderr,"found neutral cell(%d,%d), attempting fill.\n",x,y);
-                    onlyOneBorder = tempGrid.attemptFill(Position(x,y),&newOwner);
-                    //fprintf(stderr,"onlyOneBorder=%d, newOwner=%d\n",onlyOneBorder,newOwner);
-                    //tempGrid.print();
-                    if (onlyOneBorder && newOwner >= 0) {
-                        //cerr << "FILLING" <<endl;
-                        fill(Position(x,y),newOwner);
-                    }
-                }
-            }
-        }
-    }
-
     Cell &cellAround(Position &pos_, Direction &dir){
         Position pos = pos_;
         pos.move(dir);
@@ -543,27 +403,105 @@ public:
     void tryFill(Position pos, int p) {
         countFill++;
         Grid tempGrid = *this;
-        if (tempGrid.attemptFillQuick(pos,p)) {
+        FS
+        bool canFill = tempGrid.attemptFillQuick(pos,p);
+        FE(1)
+        if (canFill) {
+            FS
             fill(pos,p);
+            FE(2)
         }
     }
 
     Position closestNeutral(Position pos) {
-        Position minPos;
-        int minDist = 100;
+        FS;
+        Position res;
+        int dist = 1;
+        //           434
+        //          43234
+        //         4321234
+        //        432101234
+        //         4321234
+        //          43234
+        //           434
+        int maxDist = max(max(pos.distance(Position(0,0)),pos.distance(Position(0,34))),
+                          max(pos.distance(Position(19,0)),pos.distance(Position(19,34))) );
+        /*cerr << maxDist << endl;
+        pos = Position(10,10);
+        pos.print(); cerr << endl;
+        int output[20][35];
+        memset(output,0,700*sizeof(int));
+        output[pos.y][pos.x] = 7;
+        int count = 0;*/
+        while (dist <= maxDist) {
+            int x;
+            int y;
+            //top left
+            x = max(0,pos.x-dist);
+            y = pos.y - (dist-pos.x+x);
+            while (y>=0 && x<=pos.x) {
+                /*count++;
+                output[y][x] = dist;*/
+                if (cell[x][y].owner == NEUTRAL) {
+                    res = Position(x,y);
+                    goto returnClosestNeutral;
+                }
+                x++;
+                y--;
+            }
+            //bottom left
+            x = max(0,pos.x-dist+1);
+            y = pos.y + (dist-pos.x+x);
+            while (y<20 && x<=pos.x) {
+                /*count++;
+                output[y][x] = dist;*/
+                if (cell[x][y].owner == NEUTRAL) {
+                    res = Position(x,y);
+                    goto returnClosestNeutral;
+                }
+                x++;
+                y++;
+            }
+            //top right
+            x = min(34,pos.x+dist);
+            y = pos.y - (pos.x+dist-x);
+            while (y>=0 && x>pos.x) {
+                /*count++;
+                output[y][x] = dist;*/
+                if (cell[x][y].owner == NEUTRAL) {
+                    res = Position(x,y);
+                    goto returnClosestNeutral;
+                }
+                x--;
+                y--;
+            }
+            //bottom right
+            x = min(34,pos.x+dist-1);
+            y = pos.y + (pos.x+dist-x);
+            while (y<20 && x>pos.x) {
+                /*count++;
+                output[y][x] = dist;*/
+                if (cell[x][y].owner == NEUTRAL) {
+                    res = Position(x,y);
+                    goto returnClosestNeutral;
+                }
+                x--;
+                y++;
+            }
+            dist++;
+        }
+        returnClosestNeutral:
+/*
         for (int y = 0; y < 20; y++) {
             for (int x = 0; x < 35; x++) {
-                Position dest(x,y);
-                if (cellAt(dest).owner == NEUTRAL) {
-                    int dist = dest.distance(pos);
-                    if (dist < minDist) {
-                        minDist = dest.distance(pos);
-                        minPos = dest;
-                    }
-                }
+                cerr << output[y][x]%10;
             }
+            cerr  << endl;
         }
-        return minPos;
+        cerr << count << endl;
+*/
+        FE(3);
+        return res;
     }
 
     void moveMe(Direction dir) {
@@ -851,12 +789,14 @@ public:
     }
 
     int pathLen() {
+        FS
         Grid *grid = this;
         int res = 0;
         while (grid->previousGrid != NULL) {
             res+=grid->player[0].pos.distance(grid->previousGrid->player[0].pos);
             grid = grid->previousGrid;
         }
+        FE(0)
         return res;
     }
 
@@ -1289,6 +1229,16 @@ int main()
 
         fprintf(stderr,"factory:%d/%d\n",gridFactory.size(),gridFactory.capacity());
 
+#ifdef PROFILE
+        double totalSpent = 0;
+        for (int i = 0; i < 5; i++) {
+            totalSpent += timeSpent[i];
+        }
+        for (int i = 0; i < 5; i++) {
+            fprintf(stderr,"%3d: %.6f (%.2f%%)\n",i,timeSpent[i],timeSpent[i]*100.0/totalSpent);
+        }
+        fprintf(stderr,"Tot: %.6f (%.6f per turn)\n",totalSpent,totalSpent/(double)(gameRound+1));
+#endif
 
         Position nextPos(-1,-1);
 
