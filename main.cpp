@@ -1145,6 +1145,37 @@ int main()
         currentGrid = &testGrid;
         */
 
+        /*
+        //test 6
+        nbPlayers = 3;
+        char *trace = {"00>=000000000====1111111111===========<0\n"\
+                       "01>00=======00===1111111111===========<1\n"\
+                       "02>0========00===1111111111===========<2\n"\
+                       "03>0========0====1111111111===========<3\n"\
+                       "04>0========0====11111111112222222222=<4\n"\
+                       "05>0========0====11111111112222222222=<5\n"\
+                       "06>0========0====11111111112222222222=<6\n"\
+                       "07>0========0====11111111112222222222=<7\n"\
+                       "08>0=======+==+==11111111112222222222=<8\n"\
+                       "09>0=============11=======12222222222=<9\n"\
+                       "10>0=============11=======12222222222=<10\n"\
+                       "11>0=======+==40=1========12222222222=<11\n"\
+                       "12>0===========0==5=======12222222222=<12\n"\
+                       "13>0===========0=11111111116222222222=<13\n"\
+                       "14>0=======+==+0222222222222==========<14\n"\
+                       "15>0===========02=====================<15\n"\
+                       "16>00=========002=====================<16\n"\
+                       "17>=00=======00=222222================<17\n"\
+                       "18>==00======0========================<18\n"\
+                       "19>===00000000========================<19\n"};
+        Grid testGrid(trace);
+        gameRound = 74;
+        testGrid.player[1].direction = Left;
+        testGrid.player[1].lastTurn = Left;
+        //testGrid.print();
+        currentGrid = &testGrid;
+        */
+
         currentGrid->moveAwayPattern = NULL;
         currentGrid->previousGrid = NULL;
         int currentScore = currentGrid->score(0);
@@ -1177,11 +1208,17 @@ int main()
                     int nextScore = nextGrid->score(0);
                     if (nextScore > bestScore) {
                         int nextPathLen = nextGrid->pathLen();
-                        float nextScorePerStep = ((float)nextScore)/((float)(nextPathLen+gameRound));
-                        if (nextScorePerStep > bestScorePerStep) {
+
+                        float selectionCriteria;
+                        if (true) {
+                            selectionCriteria = ((float)(nextScore-currentScore))/((float)(nextPathLen));
+                        } else {
+                            selectionCriteria = ((float)nextScore)/((float)(nextPathLen+gameRound));
+                        }
+                        if (selectionCriteria > bestScorePerStep) {
                             bestScore = nextScore;
                             bestGrid = nextGrid;
-                            bestScorePerStep = nextScorePerStep;
+                            bestScorePerStep = selectionCriteria;
                             /*fprintf(stderr,"Best=%d:%d=%.2f \n",
                                     bestScore-currentScore,bestGrid->pathLen(),bestScorePerStep);
                             bestGrid->printPath(0);*/
@@ -1223,7 +1260,7 @@ int main()
         }
         */
 
-        //bestGrid->printPath(0);
+        bestGrid->printPath(1);
 
         currentGrid->print(bestGrid);
 
