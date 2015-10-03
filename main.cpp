@@ -15,10 +15,13 @@ using namespace std::chrono;
 
 class Grid;
 
+int countAttemp;
+int countFill;
+int countMove;
+
 int nbPlayers;
 
 int countExpansions;
-int countFill;
 bool timeout;
 int stepSize;
 high_resolution_clock::time_point roundStart;
@@ -42,7 +45,7 @@ void checkTimeOut(){
 
 /* Profiling feature */
 
-#define PROFILE
+//#define PROFILE
 
 #ifdef PROFILE
     double timeSpent[10];
@@ -149,6 +152,8 @@ public:
 
     int owner;
 };
+
+#define A_IS_B_OR_C(a,b,c) ((a)==(b)||(a)==(c))
 
 class Position{
 public:
@@ -387,6 +392,24 @@ public:
         return res;
     }
 
+    /* abandonned */
+    bool followBorder(Position pos, int aroundIdx, int &p, int &fill) {
+        bool res;
+        cellAt(pos).owner = fill;
+        for (int angle = 6; angle <=10; angle++) { //look left, then front, then right
+            Direction dir = around[(aroundIdx+angle)%8];
+            int owner = cellAround(pos,dir).owner;
+            if (owner == NEUTRAL) {
+                return followBorder(pos + dir,(aroundIdx+angle)%8,p,fill);
+            } else if (owner == p || owner == fill) {
+                /* only for front and right: test corner */
+                continue;
+                res = p == cellAt(pos).owner;
+            }
+        }
+        return res;
+    }
+
     void fill(Position pos, int p) {
         if (cellAt(pos).owner == NEUTRAL) {
             cellAt(pos).owner = p;
@@ -405,16 +428,25 @@ public:
         pos.move(dir);
         return cellAt(pos);
     }
+    int fictiveOwnerAround(Position &pos_, Direction &dir){
+        Position pos = pos_;
+        if (pos.move(dir)) {
+            return cellAt(pos).owner;
+        } else {
+            return 9;
+        }
+    }
 
     void tryFill(Position pos, int p) {
-        countFill++;
         Grid tempGrid = *this;
-        FS
+        FS;
         bool canFill = tempGrid.attemptFillQuick(pos,p);
+        countAttemp++;
         FE(1)
         if (canFill) {
             FS
             fill(pos,p);
+            countFill++;
             FE(2)
         }
     }
@@ -551,56 +583,47 @@ public:
     }
 
     void CheckAndFill(int p) {
+        countMove++;
         Position pos = player[p].pos;
         if (cellAt(pos).owner == NEUTRAL) {
             cellAt(pos).owner = p;
             player[p].score++;
             for (int i=1; i<8; i = i+2) {
-                if (cellAround(pos,around[i]).owner == p &&
-                    cellAround(pos,around[(i+2)%8]).owner == p) {
+                if (fictiveOwnerAround(pos,around[i]) == p &&
+                    fictiveOwnerAround(pos,around[(i+2)%8]) == p &&
+                    fictiveOwnerAround(pos,around[(i+1)%8]) != p) {
                     /* .o.
                      * .Oo corner
                      * ...        */
-                    if (cellAround(pos,around[(i+1)%8]).owner == NEUTRAL) {
+                    if (fictiveOwnerAround(pos,around[(i+1)%8]) == NEUTRAL) {
+                        //cerr << "cs" << i ; print9Cells(pos,p);
                         tryFill(pos + around[(i+1)%8],p);
-                    } else if (cellAround(pos,around[(i+3)%8]).isAmong(NEUTRAL,p) &&
-                               cellAround(pos,around[(i+4)%8]).owner == NEUTRAL &&
-                               cellAround(pos,around[(i+5)%8]).isAmong(NEUTRAL,p) &&
-                               cellAround(pos,around[(i+6)%8]).owner == NEUTRAL &&
-                               cellAround(pos,around[(i+7)%8]).isAmong(NEUTRAL,p) ) {
-                        for (int j = 3; j<=7; j++) {
-                            if (cellAround(pos,around[(i+j)%8]).owner == NEUTRAL) {
-                                tryFill(pos + around[(i+j)%8],p);
-                                break;
-                            }
-                        }
+                    }
+                    if (fictiveOwnerAround(pos,around[(i+1)%8]) != p &&
+                        A_IS_B_OR_C(fictiveOwnerAround(pos,around[(i+3)%8]),NEUTRAL,p) &&
+                        fictiveOwnerAround(pos,around[(i+4)%8]) == NEUTRAL &&
+                        A_IS_B_OR_C(fictiveOwnerAround(pos,around[(i+5)%8]),NEUTRAL,p) &&
+                        fictiveOwnerAround(pos,around[(i+6)%8]) == NEUTRAL &&
+                        A_IS_B_OR_C(fictiveOwnerAround(pos,around[(i+7)%8]),NEUTRAL,p) ) {
+                        //cerr << "cb" << i ; print9Cells(pos,p);
+                        tryFill(pos + around[(i+4)%8],p);
                     }
                 }
             }
-            for (int i=1; i<4; i = i+2) {
-                if (cellAround(pos,around[i]).owner == p &&
-                    cellAround(pos,around[(i+4)%8]).owner == p) {
+            for (int i=1; i<8; i = i+2) {
+                if (fictiveOwnerAround(pos,around[i]) == p &&
+                    fictiveOwnerAround(pos,around[(i+4)%8]) == p) {
                     /* .o.
                      * .O. line
                      * .o.        */
-                    if (cellAround(pos,around[(i+1)%8]).isAmong(NEUTRAL,p) &&
-                        cellAround(pos,around[(i+2)%8]).owner == NEUTRAL   &&
-                        cellAround(pos,around[(i+3)%8]).isAmong(NEUTRAL,p)    ) {
-                        for (int j = 1; j<=3; j++) {
-                            if (cellAround(pos,around[(i+j)%8]).owner == NEUTRAL) {
-                                tryFill(pos + around[(i+j)%8],p);
-                                break;
-                            }
-                        }
-                    }
-                    if (cellAround(pos,around[(i+5)%8]).isAmong(NEUTRAL,p) &&
-                        cellAround(pos,around[(i+6)%8]).owner == NEUTRAL   &&
-                        cellAround(pos,around[(i+7)%8]).isAmong(NEUTRAL,p)    ) {
-                        for (int j = 5; j<=7; j++) {
-                            if (cellAround(pos,around[(i+j)%8]).owner == NEUTRAL) {
-                                tryFill(pos + around[(i+j)%8],p);
-                                break;
-                            }
+                    if (A_IS_B_OR_C(fictiveOwnerAround(pos,around[(i+1)%8]),NEUTRAL,p) &&
+                        fictiveOwnerAround(pos,around[(i+2)%8]) == NEUTRAL   &&
+                        A_IS_B_OR_C(fictiveOwnerAround(pos,around[(i+3)%8]),NEUTRAL,p)    ) {
+                        if (!(fictiveOwnerAround(pos,around[(i+5)%8]) == p &&
+                              fictiveOwnerAround(pos,around[(i+6)%8]) == p &&
+                              fictiveOwnerAround(pos,around[(i+7)%8]) == p   ) ) {
+                            //cerr << "l" << i ; print9Cells(pos,p);
+                            tryFill(pos + around[(i+2)%8],p);
                         }
                     }
                 }
@@ -795,6 +818,21 @@ public:
         }
     }
 
+    void print9Cells(Position pos, int p) {
+        cerr << "-" << endl;
+        for (int y = max(0,pos.y-1); y<=min(19,pos.y+1); y++) {
+            for (int x = max(0,pos.x-1); x<=min(34,pos.x+1); x++){
+                if (pos.x==x && pos.y==y) {
+                    cerr << "X";
+                } else {
+                    cerr << (cell[x][y].owner==NEUTRAL?"=":
+                             cell[x][y].owner==p?"0":"7");
+                }
+            }
+            cerr << endl;
+        }
+    }
+
     int pathLen() {
         FS
         Grid *grid = this;
@@ -905,10 +943,11 @@ int main()
         TimeLine *currentTimeLine = &(timeLines.mainLine);
         Grid *currentGrid;
 
-        countExpansions = 0;
-        countFill = 0;
         timeout = false;
-        stepSize = 1;
+
+        countAttemp = 0;
+        countFill = 0;
+        countMove = 0;
 
         cin >> gameRound; cin.ignore();
         gameRound--;
@@ -1205,7 +1244,6 @@ int main()
             int nextLenCount = 0;
             int currentLen = 1;
             countExpansions = 0;
-            countFill = 0;
 
             while (states.size()>0) {
                 workingGrid = states.front();
@@ -1221,11 +1259,9 @@ int main()
                         int nextPathLen = nextGrid->pathLen();
 
                         float selectionCriteria;
-                        if (false) {
-                            selectionCriteria = ((float)(nextScore-currentScore))/((float)(nextPathLen));
-                        } else {
-                            selectionCriteria = ((float)nextScore)/((float)(nextPathLen+gameRound));
-                        }
+                        //selectionCriteria = ((float)(nextScore-currentScore))/((float)(nextPathLen)); // immediate gain
+                        //selectionCriteria = ((float)nextScore)/((float)(nextPathLen+gameRound)); //long-term gain
+                        selectionCriteria = ((float)(nextScore-currentScore+20))/((float)(nextPathLen+20));
                         if (selectionCriteria > bestScorePerStep) {
                             bestScore = nextScore;
                             bestGrid = nextGrid;
@@ -1251,8 +1287,8 @@ int main()
                     break;
                 }
             }
-            fprintf(stderr,"LastDepth:%d  Expansions: %d  States: %d  Fills: %d  Best=%d:%d=%.2f \n",
-                    workingGrid->pathLen(),countExpansions,states.size()+countExpansions,countFill,
+            fprintf(stderr,"LastDepth:%d  Expansions: %d  States: %d Best=%d:%d=%.2f \n",
+                    workingGrid->pathLen(),countExpansions,states.size()+countExpansions,
                     bestScore-currentScore,bestGrid->pathLen(),bestScorePerStep);
 
             if (timeout) {
@@ -1276,6 +1312,12 @@ int main()
         currentGrid->print(bestGrid);
 
         fprintf(stderr,"factory:%d/%d\n",gridFactory.size(),gridFactory.capacity());
+        fprintf(stderr,"fill/attemp/move:%d/%d/%d f/a=%.2f%% a/m=%.2f%% f/m=%.2f%%\n",
+                countFill,countAttemp,countMove,
+                ((float)countFill*100)/((float)countAttemp),
+                ((float)countAttemp*100)/((float)countMove),
+                ((float)countFill*100)/((float)countMove));
+
 
 #ifdef PROFILE
         double totalSpent = 0;
