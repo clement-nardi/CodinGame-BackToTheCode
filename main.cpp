@@ -672,23 +672,24 @@ public:
         }
         for (Direction dir = Up; dir <= Left; ++dir) {
             Grid *nextGrid = NULL;
-            if (cellAround(player[0].pos,dir).owner == NEUTRAL) {
-                nextGrid = gridFactory.getNewGrid();
-                *nextGrid = *this;
-                nextGrid->previousGrid = this;
-                nextGrid->moveMe(dir);
-                //Acceleration
-                for (int i = 1; i<stepSize; i++) {
-                    if (nextGrid->cellAround(nextGrid->player[0].pos,dir).owner == NEUTRAL) {
-                        nextGrid->moveMe(dir);
-                    } else {
-                        break;
+            Position pos = player[0].pos;
+            if (pos.move(dir)) {
+                if (cellAt(pos).owner == NEUTRAL) {
+                    nextGrid = gridFactory.getNewGrid();
+                    *nextGrid = *this;
+                    nextGrid->previousGrid = this;
+                    nextGrid->moveMe(dir);
+                    //Acceleration
+                    for (int i = 1; i<stepSize; i++) {
+                        if (nextGrid->cellAround(nextGrid->player[0].pos,dir).owner == NEUTRAL) {
+                            nextGrid->moveMe(dir);
+                        } else {
+                            break;
+                        }
                     }
+                    steps.push_back(nextGrid);
+                    isDeadEnd = false;
                 }
-            }
-            if (nextGrid != NULL) {
-                steps.push_back(nextGrid);
-                isDeadEnd = false;
             }
         }
         if (isDeadEnd) {
@@ -866,6 +867,11 @@ public:
             path.push_front(grid->player[0].pos);
             grid = grid->previousGrid;
         }
+
+        for (int i = 0; i < path.size(); i++) {
+            path[i].print();
+        }
+
         return path.at(i);
     }
 
@@ -1167,6 +1173,38 @@ int main()
         //testGrid.print();
         currentGrid = &testGrid;*/
 
+        /*
+        //test 5
+        nbPlayers = 4;
+        char *trace = {"00>22222222222222222000000033333333333<0\n"\
+                       "01>22222220000000002000000000333333333<1\n"\
+                       "02>22222222200000002000000000333333333<2\n"\
+                       "03>22222011200000002000000003333333333<3\n"\
+                       "04>22222011200000002000000003333333333<4\n"\
+                       "05>22222011200000002000000003333333333<5\n"\
+                       "06>22222011200000002000000003333333333<6\n"\
+                       "07>22222011200000002000000003333333333<7\n"\
+                       "08>22222111111000002000000033333333333<8\n"\
+                       "09>22222211111111222000000033333333333<9\n"\
+                       "10>22222222222222233000000033333333333<10\n"\
+                       "11>00017111111111111111113333333333333<11\n"\
+                       "12>00012111111111111111113333333333333<12\n"\
+                       "13>61112111111111111111113333333333333<13\n"\
+                       "14>22222111111111111111113333333333333<14\n"\
+                       "15>===+=111111111111111113333333333333<15\n"\
+                       "16>=====111111111111111113333333333333<16\n"\
+                       "17>==++=111111111111111113333333333333<17\n"\
+                       "18>=====111111111111111113333333333333<18\n"\
+                       "19>=====111111111133333333333333333333<19\n"};
+        Grid testGrid(trace);
+        testGrid.player[0].pos = Position(0,13);
+        testGrid.player[1].pos = Position(0,13);
+        testGrid.player[2].pos = Position(0,13);
+        testGrid.cell[0][13].owner = NEUTRAL;
+        //testGrid.print();
+        currentGrid = &testGrid;
+        */
+
         currentGrid->moveAwayPattern = NULL;
         currentGrid->previousGrid = NULL;
         int currentScore = currentGrid->score(0);
@@ -1245,6 +1283,7 @@ int main()
         }
         */
 
+        //bestGrid->printPath(0);
 
         currentGrid->print(bestGrid);
 
