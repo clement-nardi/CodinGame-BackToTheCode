@@ -28,7 +28,7 @@ int depth;
 void checkTimeOut(){
     high_resolution_clock::time_point end = high_resolution_clock::now();
     duration<double> time_span = duration_cast<duration<double>>(end - roundStart);
-    //fprintf(stderr,"%.2f\n",time_span.count());
+//    fprintf(stderr,"%.3f\n",time_span.count());
     if (time_span.count() >0.095) {
         timeout = true;
     }
@@ -667,7 +667,7 @@ public:
         std::vector<Grid *> steps;
         bool isDeadEnd = true;
         countExpansions++;
-        if (countExpansions%500 == 0) {
+        if (countExpansions%100 == 0) {
             checkTimeOut();
         }
         for (Direction dir = Up; dir <= Left; ++dir) {
@@ -1230,7 +1230,7 @@ int main()
                     bestScore-currentScore,bestGrid->pathLen(),bestScorePerStep);
 
             if (timeout) {
-                cerr << "TIMEOUT!!" << endl;
+                //cerr << "TIMEOUT!!" << endl;
                 break;
             }
         }
