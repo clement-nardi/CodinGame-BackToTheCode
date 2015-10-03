@@ -42,7 +42,7 @@ void checkTimeOut(){
 
 /* Profiling feature */
 
-//#define PROFILE
+#define PROFILE
 
 #ifdef PROFILE
     double timeSpent[10];
@@ -321,6 +321,7 @@ public:
     int backInTimeLeft;
     Direction direction;
     Direction lastTurn; //Left or Right
+    int score;
 };
 
 class Grid {
@@ -340,6 +341,10 @@ public:
     }
 
     int score(int p) {
+        return player[p].score;
+    }
+
+    void computeScore(int p) {
         FS
         int score = 0;
         for (int y = 0; y < 20; y++) {
@@ -349,8 +354,8 @@ public:
                 }
             }
         }
+        player[p].score = score;
         FE(4)
-        return score;
     }
 
     /* stops as soon as possible */
@@ -385,6 +390,7 @@ public:
     void fill(Position pos, int p) {
         if (cellAt(pos).owner == NEUTRAL) {
             cellAt(pos).owner = p;
+            player[p].score++;
             for (Direction dir = Up; dir <= UpLeft; ++dir) {
                 Position newPos = pos;
                 if (newPos.move(dir)) {
@@ -548,6 +554,7 @@ public:
         Position pos = player[p].pos;
         if (cellAt(pos).owner == NEUTRAL) {
             cellAt(pos).owner = p;
+            player[p].score++;
             for (int i=1; i<8; i = i+2) {
                 if (cellAround(pos,around[i]).owner == p &&
                     cellAround(pos,around[(i+2)%8]).owner == p) {
@@ -940,6 +947,10 @@ int main()
         }
         roundStart = high_resolution_clock::now();
 
+        for (int p = 0; p < nbPlayers; p++) {
+            currentGrid->computeScore(p);
+        }
+
         if (gameRound == 0) {
             /* assume players are going to go towards the closest corner, horizontally then vertically */
             for (int p = 0; p < nbPlayers; p++) {
@@ -1210,7 +1221,7 @@ int main()
                         int nextPathLen = nextGrid->pathLen();
 
                         float selectionCriteria;
-                        if (true) {
+                        if (false) {
                             selectionCriteria = ((float)(nextScore-currentScore))/((float)(nextPathLen));
                         } else {
                             selectionCriteria = ((float)nextScore)/((float)(nextPathLen+gameRound));
@@ -1260,7 +1271,7 @@ int main()
         }
         */
 
-        bestGrid->printPath(1);
+        //bestGrid->printPath(1);
 
         currentGrid->print(bestGrid);
 
