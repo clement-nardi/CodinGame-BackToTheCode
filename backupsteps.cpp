@@ -19,6 +19,7 @@ using namespace std::chrono;
 
 class Grid;
 
+int countFollow;
 int countAttemp;
 int countFill;
 int countMove;
@@ -35,7 +36,7 @@ int depth;
 void checkTimeOut(){
     high_resolution_clock::time_point end = high_resolution_clock::now();
     duration<double> time_span = duration_cast<duration<double>>(end - roundStart);
-//    fprintf(stderr,"%.3f\n",time_span.count());
+    //fprintf(stderr,"%.3f\n",time_span.count());
     if (time_span.count() >0.095) {
         timeout = true;
     }
@@ -396,21 +397,32 @@ public:
         return res;
     }
 
-    /* abandonned */
-    bool followBorder(Position pos, int aroundIdx, int &p, int &fill) {
-        bool res;
-        cellAt(pos).owner = fill;
-        for (int angle = 6; angle <=10; angle++) { //look left, then front, then right
-            Direction dir = around[(aroundIdx+angle)%8];
-            int owner = cellAround(pos,dir).owner;
-            if (owner == NEUTRAL) {
-                return followBorder(pos + dir,(aroundIdx+angle)%8,p,fill);
-            } else if (owner == p || owner == fill) {
-                /* only for front and right: test corner */
-                continue;
-                res = p == cellAt(pos).owner;
+    bool followBorder(Position pos_, int p) {
+        //simple 4-way follow border
+        bool res = true;
+        Position pos = pos_;
+        Direction initialMoveDir;
+        Direction moveDir;
+        //find border
+        for (Direction dir = Up; dir <= Left; ++dir) {
+            if (cellAround(pos,dir).owner == p) {
+                initialMoveDir = (Direction)((dir+1)%4);
             }
         }
+        moveDir = initialMoveDir;
+        do {
+            Direction lookDir = (Direction)((moveDir+3)%4);//look left
+            int owner = fictiveOwnerAround(pos,lookDir);
+            if (owner == NEUTRAL) {//go left
+                moveDir = lookDir;
+                pos.move(moveDir);
+            } else if (owner == p) {
+                moveDir = (Direction)((moveDir+1)%4);//turnRight
+            } else {
+                res = false;
+                break;
+            }
+        } while (!(pos == pos_ && moveDir == initialMoveDir));
         return res;
     }
 
@@ -442,16 +454,16 @@ public:
     }
 
     void tryFill(Position pos, int p) {
-        Grid tempGrid = *this;
         FS;
+        Grid tempGrid = *this;
         bool canFill = tempGrid.attemptFillQuick(pos,p);
         countAttemp++;
-        FE(1)
+        FE(1);
         if (canFill) {
-            FS
+            FS;
             fill(pos,p);
             countFill++;
-            FE(2)
+            FE(2);
         }
     }
 
@@ -590,6 +602,9 @@ public:
 
     void CheckAndFill(int p) {
         countMove++;
+        if (countMove%1500 == 0) {
+            checkTimeOut();
+        }
         Position pos = player[p].pos;
         if (cellAt(pos).owner == NEUTRAL) {
             cellAt(pos).owner = p;
@@ -641,9 +656,6 @@ public:
         std::vector<Grid *> steps;
         bool isDeadEnd = true;
         countExpansions++;
-        if (countExpansions%100 == 0) {
-            checkTimeOut();
-        }
         for (Direction dir = Up; dir <= Left; ++dir) {
             Grid *nextGrid = NULL;
             Position pos = player[0].pos;
@@ -934,6 +946,36 @@ public:
 
 TimeLines timeLines;
 
+
+int currentScore;
+
+int bestScore;
+Grid *bestGrid;
+float bestScorePerStep;
+
+void analyseGrids(vector<Grid*> &grids) {
+    for (int i = 0; i<grids.size(); i++) {
+        Grid *nextGrid = grids[i];
+        int nextScore = nextGrid->score(0);
+        if (nextScore > bestScore) {
+            int nextPathLen = nextGrid->pathLen();
+
+            float selectionCriteria;
+            //selectionCriteria = ((float)(nextScore-currentScore))/((float)(nextPathLen)); // immediate gain
+            //selectionCriteria = ((float)nextScore)/((float)(nextPathLen+gameRound)); //long-term gain
+            selectionCriteria = ((float)(nextScore-currentScore+20))/((float)(nextPathLen+20));
+            if (selectionCriteria > bestScorePerStep) {
+                bestScore = nextScore;
+                bestGrid = nextGrid;
+                bestScorePerStep = selectionCriteria;
+                /*fprintf(stderr,"Best=%d:%d=%.2f \n",
+                        bestScore-currentScore,bestGrid->pathLen(),bestScorePerStep);
+                bestGrid->printPath(0);*/
+            }
+        }
+    }
+}
+
 int main()
 {
     int opponentCount; // Opponent count
@@ -951,6 +993,7 @@ int main()
 
         timeout = false;
 
+        countFollow = 0;
         countAttemp = 0;
         countFill = 0;
         countMove = 0;
@@ -1238,22 +1281,43 @@ int main()
 
         currentGrid->moveAwayPattern = NULL;
         currentGrid->previousGrid = NULL;
-        int currentScore = currentGrid->score(0);
-        int bestScore = currentScore;
-        Grid *bestGrid = currentGrid;
-        float bestScorePerStep = 0;
+        currentScore = currentGrid->score(0);
+        bestScore = currentScore;
+        bestGrid = currentGrid;
+        bestScorePerStep = 0;
         gridFactory.reset();
 
-        for (stepSize = 3; stepSize >= 1; stepSize--) {
+        int stepSizes[10] = {17,13,11,7,5,3,2,1};
+
+        for (int stepSizeIdx = 0; stepSizeIdx < 8; stepSizeIdx++) {
+            stepSize = stepSizes[stepSizeIdx];
             std::deque<Grid *> states;
-            states.push_back(gridFactory.getNewGrid());
-            *(states.back()) = *currentGrid;
             Grid *workingGrid;
 
-            int currentLenCount = 1;
-            int nextLenCount = 0;
-            int currentLen = 1;
             countExpansions = 0;
+
+            std::vector<Grid *> initialGrids;
+            for (Direction dir = Up; dir <= Left; ++dir) {
+                Grid *previousGrid = currentGrid;
+                Grid *nextGrid;
+                Position pos = currentGrid->player[0].pos;
+                int s = 0;
+                while (pos.move(dir) && s<stepSize) {
+                    if (previousGrid->cellAt(pos).owner == NEUTRAL) {
+                        nextGrid = gridFactory.getNewGrid();
+                        *nextGrid = *previousGrid;
+                        nextGrid->previousGrid = previousGrid;
+                        nextGrid->moveMe(dir);
+                        initialGrids.push_back(nextGrid);
+                        previousGrid = nextGrid;
+                    } else {
+                        break;
+                    }
+                    s++;
+                }
+            }
+            analyseGrids(initialGrids);
+            states.insert(states.end(),initialGrids.begin(), initialGrids.end());
 
             while (states.size()>0) {
                 workingGrid = states.front();
@@ -1262,35 +1326,7 @@ int main()
                 std::vector<Grid *> nextSteps = workingGrid->nextSteps();
                 states.insert(states.end(),nextSteps.begin(), nextSteps.end());
 
-                for (int i = 0; i<nextSteps.size(); i++) {
-                    Grid *nextGrid = nextSteps[i];
-                    int nextScore = nextGrid->score(0);
-                    if (nextScore > bestScore) {
-                        int nextPathLen = nextGrid->pathLen();
-
-                        float selectionCriteria;
-                        //selectionCriteria = ((float)(nextScore-currentScore))/((float)(nextPathLen)); // immediate gain
-                        //selectionCriteria = ((float)nextScore)/((float)(nextPathLen+gameRound)); //long-term gain
-                        selectionCriteria = ((float)(nextScore-currentScore+20))/((float)(nextPathLen+20));
-                        if (selectionCriteria > bestScorePerStep) {
-                            bestScore = nextScore;
-                            bestGrid = nextGrid;
-                            bestScorePerStep = selectionCriteria;
-                            /*fprintf(stderr,"Best=%d:%d=%.2f \n",
-                                    bestScore-currentScore,bestGrid->pathLen(),bestScorePerStep);
-                            bestGrid->printPath(0);*/
-                        }
-                    }
-                }
-
-                nextLenCount += nextSteps.size();
-                currentLenCount--;
-                if (currentLenCount==0) {
-                    currentLenCount = nextLenCount;
-                    nextLenCount = 0;
-                    currentLen++;
-                    //cerr << currentLen << ":" << currentLenCount << " ";
-                }
+                analyseGrids(nextSteps);
 
                 if (timeout) {
                     cerr << "TIMEOUT!!" << endl;
@@ -1322,11 +1358,10 @@ int main()
         currentGrid->print(bestGrid);
 
         fprintf(stderr,"factory:%d/%d\n",gridFactory.size(),gridFactory.capacity());
-        fprintf(stderr,"fill/attemp/move:%d/%d/%d f/a=%.2f%% a/m=%.2f%% f/m=%.2f%%\n",
+        fprintf(stderr,"fill/attemp/move:%d/%d/%d f/a=%.2f%% a/m=%.2f%%\n",
                 countFill,countAttemp,countMove,
                 ((float)countFill*100)/((float)countAttemp),
-                ((float)countAttemp*100)/((float)countMove),
-                ((float)countFill*100)/((float)countMove));
+                ((float)countAttemp*100)/((float)countMove));
 
 
 #ifdef PROFILE
